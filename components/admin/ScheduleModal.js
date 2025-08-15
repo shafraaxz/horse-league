@@ -1,4 +1,4 @@
-// Fixed components/admin/ScheduleModal.js
+// components/admin/ScheduleModal.js - IMPROVED with proper round-robin explanation
 import { useState } from 'react';
 import { X, Calendar, Settings, Clock, MapPin, AlertTriangle, Info, Zap } from 'lucide-react';
 
@@ -24,14 +24,16 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
     {
       value: 'double-round-robin',
       label: 'Double Round-Robin',
-      description: 'Each team plays every other team twice (home & away)',
+      description: 'Complete tournament: Every team plays every other team twice (home & away)',
+      details: 'True double round-robin ensures perfect balance and fairness',
       icon: '🔄',
       recommended: true
     },
     {
       value: 'single-round-robin',
       label: 'Single Round-Robin',
-      description: 'Each team plays every other team once',
+      description: 'Each team plays every other team exactly once',
+      details: 'Shorter tournament with each pairing played only once',
       icon: '🎯',
       recommended: false
     }
@@ -128,22 +130,28 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
     }));
   };
 
+  // ✅ PROPER: Calculate matches using correct round-robin formula
   const calculateMatches = () => {
     const teamCount = teams.length;
     if (teamCount < 2) return 0;
     
     if (formData.format === 'double-round-robin') {
+      // Each team plays every other team twice: n × (n-1)
       return teamCount * (teamCount - 1);
     } else {
+      // Each team plays every other team once: n × (n-1) ÷ 2
       return (teamCount * (teamCount - 1)) / 2;
     }
   };
 
+  // ✅ PROPER: Calculate rounds using standard round-robin formula
   const calculateRounds = () => {
     const teamCount = teams.length;
     if (teamCount < 2) return 0;
     
+    // Standard round-robin: if even teams = n-1 rounds, if odd teams = n rounds
     const roundsPerLeg = teamCount % 2 === 0 ? teamCount - 1 : teamCount;
+    
     return formData.format === 'double-round-robin' ? roundsPerLeg * 2 : roundsPerLeg;
   };
 
@@ -169,6 +177,15 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
     });
   };
 
+  // ✅ NEW: Calculate matches per round for better understanding
+  const calculateMatchesPerRound = () => {
+    const teamCount = teams.length;
+    if (teamCount < 2) return 0;
+    
+    // In each round, we can have at most floor(n/2) simultaneous matches
+    return Math.floor(teamCount / 2);
+  };
+
   const tabs = [
     { id: 'basic', label: 'Basic Settings', icon: Settings },
     { id: 'advanced', label: 'Advanced Options', icon: Zap },
@@ -189,7 +206,7 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
               <div>
                 <h3 className="text-2xl font-semibold text-white">Generate Tournament Schedule</h3>
                 <p className="text-slate-400 text-sm">
-                  Create a complete tournament schedule automatically for {teams.length} teams
+                  Create a balanced round-robin tournament for {teams.length} teams
                 </p>
               </div>
             </div>
@@ -276,7 +293,8 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
                               </span>
                             )}
                           </div>
-                          <p className="text-slate-400 text-sm">{format.description}</p>
+                          <p className="text-slate-400 text-sm mb-2">{format.description}</p>
+                          <p className="text-slate-300 text-xs">{format.details}</p>
                         </div>
                       </div>
                       {formData.format === format.value && (
@@ -288,6 +306,25 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
                       )}
                     </label>
                   ))}
+                </div>
+                
+                {/* ✅ NEW: Format explanation */}
+                <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <Info className="w-5 h-5 text-blue-400 mt-0.5" />
+                    <div>
+                      <h5 className="text-blue-400 font-medium mb-1">Round-Robin Tournament Format</h5>
+                      <div className="text-sm text-slate-300 space-y-1">
+                        <p><strong>Double Round-Robin:</strong> Each team plays every other team twice (once at home, once away). This ensures perfect balance and fairness.</p>
+                        <p><strong>Single Round-Robin:</strong> Each team plays every other team once. Home advantage is distributed as evenly as possible.</p>
+                        <p className="text-blue-300 mt-2">
+                          📊 With {teams.length} teams: 
+                          <strong> {calculateMatches()} total matches</strong> across 
+                          <strong> {calculateRounds()} rounds</strong>
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -345,7 +382,7 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
                     </select>
                     {errors.daysBetween && <p className="text-red-400 text-sm mt-1">{errors.daysBetween}</p>}
                     <p className="text-slate-400 text-xs mt-1">
-                      ⏱️ Tournament will take approximately {calculateDuration()} weeks
+                      ⏱️ Tournament duration: approximately {calculateDuration()} weeks
                     </p>
                   </div>
                 </div>
@@ -398,7 +435,7 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
                   </button>
                   
                   <p className="text-slate-400 text-xs">
-                    💡 Multiple time periods allow scheduling multiple matches per round
+                    💡 With {formData.timePeriods.length} time slots, you can schedule {calculateMatchesPerRound()} matches per round simultaneously
                   </p>
                 </div>
                 {errors.timePeriods && <p className="text-red-400 text-sm mt-1">{errors.timePeriods}</p>}
@@ -486,12 +523,13 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
                     <div className="flex items-start gap-3">
                       <Info className="w-5 h-5 text-blue-400 mt-0.5" />
                       <div>
-                        <h5 className="text-blue-400 font-medium mb-1">Schedule Generation Notes</h5>
+                        <h5 className="text-blue-400 font-medium mb-1">Round-Robin Algorithm</h5>
                         <ul className="text-sm text-slate-300 space-y-1">
-                          <li>• Each team will have balanced home and away matches</li>
+                          <li>• Uses the classical round-robin rotation algorithm</li>
+                          <li>• Ensures perfect balance: each team plays every opponent equally</li>
+                          <li>• Home/away distribution is mathematically optimized</li>
+                          <li>• No team has consecutive bye weeks or unfair advantages</li>
                           <li>• Matches are distributed evenly across available time slots</li>
-                          <li>• The algorithm ensures no team plays consecutive matches</li>
-                          <li>• Venue assignments prioritize team home stadiums when possible</li>
                         </ul>
                       </div>
                     </div>
@@ -531,19 +569,31 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
                 </div>
               </div>
 
-              {/* Detailed Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                
-                {/* Schedule Details */}
-                <div className="bg-slate-700/30 rounded-xl p-6">
-                  <h5 className="text-lg font-semibold text-white mb-4">Schedule Details</h5>
+              {/* Tournament Mathematics */}
+              <div className="bg-slate-700/30 rounded-xl p-6">
+                <h5 className="text-lg font-semibold text-white mb-4">Tournament Mathematics</h5>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-3 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Format:</span>
+                      <span className="text-slate-400">Teams:</span>
+                      <span className="text-white font-medium">{teams.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Matches per team:</span>
                       <span className="text-white font-medium">
-                        {formats.find(f => f.value === formData.format)?.label}
+                        {formData.format === 'double-round-robin' ? (teams.length - 1) * 2 : teams.length - 1}
                       </span>
                     </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Matches per round:</span>
+                      <span className="text-white font-medium">{calculateMatchesPerRound()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Time slots needed:</span>
+                      <span className="text-white font-medium">{formData.timePeriods.length}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-3 text-sm">
                     <div className="flex justify-between">
                       <span className="text-slate-400">Start Date:</span>
                       <span className="text-white font-medium">
@@ -561,42 +611,9 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
                       <span className="text-white font-medium">{formData.daysBetween} days</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Matches per Team:</span>
-                      <span className="text-white font-medium">
-                        {formData.format === 'double-round-robin' ? (teams.length - 1) * 2 : teams.length - 1}
-                      </span>
+                      <span className="text-slate-400">Algorithm:</span>
+                      <span className="text-white font-medium">Classic Round-Robin</span>
                     </div>
-                  </div>
-                </div>
-
-                {/* Time & Venue Info */}
-                <div className="bg-slate-700/30 rounded-xl p-6">
-                  <h5 className="text-lg font-semibold text-white mb-4">Time & Venues</h5>
-                  <div className="space-y-3">
-                    <div>
-                      <span className="text-slate-400 text-sm">Match Times:</span>
-                      <div className="mt-1 space-y-1">
-                        {formData.timePeriods.map((time, index) => (
-                          <div key={index} className="text-white text-sm">
-                            🕐 {new Date(`2000-01-01 ${time}`).toLocaleTimeString([], { 
-                              hour: 'numeric', 
-                              minute: '2-digit', 
-                              hour12: true 
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 text-sm">Primary Venue:</span>
-                      <div className="text-white text-sm mt-1">🏟️ {formData.venues.primary}</div>
-                    </div>
-                    {formData.venues.secondary && (
-                      <div>
-                        <span className="text-slate-400 text-sm">Secondary Venue:</span>
-                        <div className="text-white text-sm mt-1">🏟️ {formData.venues.secondary}</div>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
@@ -633,8 +650,8 @@ const ScheduleModal = ({ isOpen, onClose, teams, selectedLeague, onGenerate }) =
                     <div>
                       <h5 className="text-green-400 font-medium mb-2">Ready to Generate!</h5>
                       <p className="text-slate-300 text-sm mb-3">
-                        Your tournament schedule is configured and ready to be generated. 
-                        This will create {calculateMatches()} matches across {calculateRounds()} rounds.
+                        Your {formData.format.replace('-', ' ')} tournament is configured and ready. 
+                        This will create {calculateMatches()} matches across {calculateRounds()} rounds using the classic round-robin algorithm.
                       </p>
                       {formData.deleteExisting && (
                         <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-lg">

@@ -1,4 +1,4 @@
-// components/admin/TeamModal.js - FIXED with all team edit functionality
+// components/admin/TeamModal.js - FIXED to properly handle edit vs create
 import React, { useState, useEffect } from 'react';
 import { X, Users, MapPin, User, Calendar, Save, Shield } from 'lucide-react';
 import { ImageUpload } from '../ImageUpload';
@@ -22,15 +22,26 @@ const TeamModal = ({ isOpen, onClose, team, onSave, selectedLeague }) => {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
+  // ✅ FIXED: Properly detect edit vs create mode
+  const isEditMode = !!(team && team._id);
+
   useEffect(() => {
-    if (team) {
+    console.log('🔄 TeamModal useEffect triggered');
+    console.log('📝 Received team data:', team);
+    console.log('🔧 Edit mode:', isEditMode);
+    
+    if (isEditMode) {
       // ✅ EDITING EXISTING TEAM: Load all team data
+      console.log('✏️ Loading existing team data for editing');
       setFormData({
         name: team.name || '',
         coach: team.coach || '',
         stadium: team.stadium || '',
         logo: team.logo || '',
-        founded: team.founded ? new Date(team.founded).getFullYear().toString() : '',
+        founded: team.founded ? (
+          typeof team.founded === 'string' ? team.founded : 
+          new Date(team.founded).getFullYear().toString()
+        ) : '',
         description: team.description || '',
         colors: team.colors || '',
         website: team.website || '',
@@ -39,11 +50,12 @@ const TeamModal = ({ isOpen, onClose, team, onSave, selectedLeague }) => {
         captain: team.captain || '',
         homeVenue: team.homeVenue || team.stadium || '',
         awayVenue: team.awayVenue || '',
-        _id: team._id
+        _id: team._id  // ✅ CRITICAL: Include ID for updates
       });
-      setErrors({});
+      console.log('✅ Team data loaded for editing:', team.name);
     } else {
       // ✅ CREATING NEW TEAM: Reset form
+      console.log('🆕 Setting up form for new team creation');
       setFormData({
         name: '',
         coach: '',
@@ -59,18 +71,17 @@ const TeamModal = ({ isOpen, onClose, team, onSave, selectedLeague }) => {
         homeVenue: 'Manadhoo Futsal Ground',
         awayVenue: ''
       });
-      setErrors({});
+      console.log('✅ Form reset for new team');
     }
-  }, [team, isOpen]);
+    
+    // Clear any existing errors
+    setErrors({});
+  }, [team, isEditMode, isOpen]);
 
   const validateForm = () => {
     const newErrors = {};
     
-    if (!formData.name.trim()) {
-      newErrors.name = 'Team name is required';
-    }
-    
-    if (formData.name.trim().length < 2) {
+    if (!formData.name || formData.name.trim().length < 2) {
       newErrors.name = 'Team name must be at least 2 characters';
     }
     
@@ -82,8 +93,11 @@ const TeamModal = ({ isOpen, onClose, team, onSave, selectedLeague }) => {
       newErrors.website = 'Website must start with http:// or https://';
     }
     
-    if (formData.founded && (parseInt(formData.founded) < 1800 || parseInt(formData.founded) > new Date().getFullYear())) {
-      newErrors.founded = 'Please enter a valid founding year';
+    if (formData.founded) {
+      const year = parseInt(formData.founded);
+      if (isNaN(year) || year < 1800 || year > new Date().getFullYear()) {
+        newErrors.founded = 'Please enter a valid founding year';
+      }
     }
     
     setErrors(newErrors);
@@ -94,23 +108,37 @@ const TeamModal = ({ isOpen, onClose, team, onSave, selectedLeague }) => {
     e.preventDefault();
     
     if (!validateForm()) {
+      console.log('❌ Form validation failed:', errors);
       return;
     }
     
     setLoading(true);
     
     try {
+      // ✅ CRITICAL: Prepare data correctly for edit vs create
       const submitData = {
         ...formData,
-        leagueId: selectedLeague,
         founded: formData.founded ? parseInt(formData.founded) : null
       };
+
+      if (isEditMode) {
+        // ✅ UPDATE: Include the team ID
+        submitData.id = formData._id;
+        console.log('📤 Updating existing team:', submitData.name, 'ID:', submitData.id);
+      } else {
+        // ✅ CREATE: Include league ID
+        submitData.leagueId = selectedLeague;
+        console.log('📤 Creating new team:', submitData.name, 'League:', selectedLeague);
+        
+        // Don't include _id for new teams
+        delete submitData._id;
+      }
       
-      console.log('💾 Saving team data:', submitData);
+      console.log('💾 Submitting team data:', submitData);
       await onSave(submitData);
       
     } catch (error) {
-      console.error('Error saving team:', error);
+      console.error('❌ Error saving team:', error);
       setErrors({ submit: 'Failed to save team. Please try again.' });
     } finally {
       setLoading(false);
@@ -140,19 +168,21 @@ const TeamModal = ({ isOpen, onClose, team, onSave, selectedLeague }) => {
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-slate-800 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-slate-700">
         
-        {/* Header */}
+        {/* ✅ ENHANCED: Header shows edit vs create mode clearly */}
         <div className="p-6 border-b border-slate-700">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-green-600 rounded-xl flex items-center justify-center">
+              <div className={`w-12 h-12 bg-gradient-to-r rounded-xl flex items-center justify-center ${
+                isEditMode ? 'from-orange-500 to-orange-600' : 'from-green-500 to-green-600'
+              }`}>
                 <Users className="w-7 h-7 text-white" />
               </div>
               <div>
                 <h3 className="text-2xl font-semibold text-white">
-                  {team ? `Edit ${team.name}` : 'Add New Team'}
+                  {isEditMode ? `Edit ${team?.name || 'Team'}` : 'Add New Team'}
                 </h3>
                 <p className="text-slate-400 text-sm">
-                  {team ? 'Update team information and settings' : 'Create a new team for the league'}
+                  {isEditMode ? 'Update team information and settings' : 'Create a new team for the league'}
                 </p>
               </div>
             </div>
@@ -168,6 +198,20 @@ const TeamModal = ({ isOpen, onClose, team, onSave, selectedLeague }) => {
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           
+          {/* ✅ DEBUG INFO in development */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+              <h4 className="text-blue-400 font-medium mb-2">🔧 Debug Info</h4>
+              <div className="text-xs text-slate-300 space-y-1">
+                <p><strong>Mode:</strong> {isEditMode ? 'EDIT' : 'CREATE'}</p>
+                <p><strong>Team ID:</strong> {team?._id || 'None (new team)'}</p>
+                <p><strong>Team Name:</strong> {team?.name || 'None'}</p>
+                <p><strong>Form ID:</strong> {formData._id || 'None'}</p>
+                <p><strong>League ID:</strong> {selectedLeague || 'None'}</p>
+              </div>
+            </div>
+          )}
+
           {/* Basic Information */}
           <div className="space-y-4">
             <h4 className="text-lg font-semibold text-white">Basic Information</h4>
@@ -387,7 +431,7 @@ const TeamModal = ({ isOpen, onClose, team, onSave, selectedLeague }) => {
           )}
 
           {/* League Validation */}
-          {!selectedLeague && (
+          {!selectedLeague && !isEditMode && (
             <div className="p-4 bg-orange-500/20 border border-orange-500/30 rounded-lg">
               <div className="flex items-center gap-2 text-orange-400">
                 <Shield className="w-5 h-5" />
@@ -409,18 +453,22 @@ const TeamModal = ({ isOpen, onClose, team, onSave, selectedLeague }) => {
             </button>
             <button
               type="submit"
-              disabled={loading || !formData.name.trim() || !selectedLeague}
-              className="flex-1 px-6 py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-lg font-medium transition-all duration-200 disabled:opacity-50"
+              disabled={loading || !formData.name.trim() || (!selectedLeague && !isEditMode)}
+              className={`flex-1 px-6 py-3 bg-gradient-to-r text-white rounded-lg font-medium transition-all duration-200 disabled:opacity-50 ${
+                isEditMode 
+                  ? 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'
+                  : 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700'
+              }`}
             >
               {loading ? (
                 <div className="flex items-center justify-center gap-2">
                   <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  {team ? 'Updating...' : 'Creating...'}
+                  {isEditMode ? 'Updating...' : 'Creating...'}
                 </div>
               ) : (
                 <div className="flex items-center justify-center gap-2">
                   <Save className="w-5 h-5" />
-                  {team ? 'Update Team' : 'Create Team'}
+                  {isEditMode ? 'Update Team' : 'Create Team'}
                 </div>
               )}
             </button>
