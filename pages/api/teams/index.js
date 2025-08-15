@@ -1,3 +1,4 @@
+// pages/api/teams/index.js - FIXED to properly handle team updates
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import { Team, League, Player } from '../../../lib/models';
@@ -5,7 +6,6 @@ import { Team, League, Player } from '../../../lib/models';
 const MONGODB_URI = process.env.MONGODB_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
 
-// Verify JWT token
 function verifyToken(token) {
   try {
     return jwt.verify(token, JWT_SECRET);
@@ -14,7 +14,6 @@ function verifyToken(token) {
   }
 }
 
-// Database connection
 async function connectDB() {
   if (mongoose.connections[0].readyState) {
     return;
@@ -31,16 +30,18 @@ async function connectDB() {
 
 export default async function handler(req, res) {
   try {
+    console.log(`🎯 Teams API: ${req.method} request`);
+    console.log('📝 Query:', req.query);
+    console.log('📝 Body keys:', req.body ? Object.keys(req.body) : 'none');
+    
     await connectDB();
 
     switch (req.method) {
       case 'GET':
-        // Allow public access for GET requests
         return getTeams(req, res);
       case 'POST':
       case 'PUT':
       case 'DELETE':
-        // Require authentication for modify operations
         const token = req.headers.authorization?.replace('Bearer ', '');
         if (!token) {
           return res.status(401).json({ error: 'No token provided' });
@@ -50,6 +51,8 @@ export default async function handler(req, res) {
         if (!decoded) {
           return res.status(401).json({ error: 'Invalid token' });
         }
+
+        console.log('✅ Authenticated user:', decoded.username);
 
         if (req.method === 'POST') {
           return createTeam(req, res, decoded);
@@ -64,7 +67,7 @@ export default async function handler(req, res) {
         return res.status(405).json({ error: 'Method not allowed' });
     }
   } catch (error) {
-    console.error('Teams API error:', error);
+    console.error('💥 Teams API error:', error);
     res.status(500).json({ 
       error: 'Internal server error',
       details: error.message 
@@ -79,6 +82,8 @@ async function getTeams(req, res) {
     if (!leagueId) {
       return res.status(400).json({ error: 'League ID is required' });
     }
+
+    console.log('🔍 Fetching teams for league:', leagueId);
 
     const teams = await Team.find({ league: leagueId })
       .populate({
@@ -98,6 +103,7 @@ async function getTeams(req, res) {
       })
     );
 
+    console.log(`📊 Found ${teamsWithCounts.length} teams`);
     res.status(200).json(teamsWithCounts);
   } catch (error) {
     console.error('Get teams error:', error);
@@ -107,7 +113,25 @@ async function getTeams(req, res) {
 
 async function createTeam(req, res, decoded) {
   try {
-    const { name, logo, leagueId, stadium, coach, founded } = req.body;
+    console.log('🆕 Creating new team');
+    console.log('📝 Request body:', req.body);
+    
+    const { 
+      name, 
+      logo, 
+      leagueId, 
+      stadium, 
+      coach, 
+      founded,
+      description,
+      colors,
+      website,
+      email,
+      phone,
+      captain,
+      homeVenue,
+      awayVenue
+    } = req.body;
 
     if (!name || !leagueId) {
       return res.status(400).json({ error: 'Team name and league are required' });
@@ -125,16 +149,27 @@ async function createTeam(req, res, decoded) {
       return res.status(404).json({ error: 'League not found' });
     }
 
-    const team = new Team({
-      name,
-      logo,
-      league: leagueId,
-      stadium,
-      coach,
-      founded: founded ? new Date(founded) : undefined,
-      playersCount: 0
-    });
+    console.log('✅ Creating team:', name, 'in league:', league.name);
 
+    const teamData = {
+      name,
+      logo: logo || '',
+      league: leagueId,
+      stadium: stadium || '',
+      coach: coach || '',
+      founded: founded ? parseInt(founded) : undefined,
+      description: description || '',
+      colors: colors || '',
+      website: website || '',
+      email: email || '',
+      phone: phone || '',
+      captain: captain || '',
+      homeVenue: homeVenue || stadium || '',
+      awayVenue: awayVenue || '',
+      playersCount: 0
+    };
+
+    const team = new Team(teamData);
     const savedTeam = await team.save();
 
     // Update league teams count
@@ -144,6 +179,8 @@ async function createTeam(req, res, decoded) {
 
     const populatedTeam = await Team.findById(savedTeam._id)
       .populate('league', 'name');
+
+    console.log('✅ Team created successfully:', populatedTeam._id);
 
     res.status(201).json({
       message: 'Team created successfully',
@@ -157,29 +194,92 @@ async function createTeam(req, res, decoded) {
 
 async function updateTeam(req, res) {
   try {
-    const { id, name, logo, stadium, coach, founded } = req.body;
+    console.log('✏️ Updating existing team');
+    console.log('📝 Request body:', req.body);
+    
+    const { 
+      id,           // ✅ CRITICAL: Team ID for update
+      name, 
+      logo, 
+      stadium, 
+      coach, 
+      founded,
+      description,
+      colors,
+      website,
+      email,
+      phone,
+      captain,
+      homeVenue,
+      awayVenue
+    } = req.body;
 
     if (!id) {
-      return res.status(400).json({ error: 'Team ID is required' });
+      console.log('❌ Missing team ID for update');
+      return res.status(400).json({ error: 'Team ID is required for update' });
     }
 
-    const updateData = {};
-    if (name) updateData.name = name;
-    if (logo !== undefined) updateData.logo = logo;
-    if (stadium !== undefined) updateData.stadium = stadium;
-    if (coach !== undefined) updateData.coach = coach;
-    if (founded !== undefined) updateData.founded = founded ? new Date(founded) : null;
+    console.log('🔍 Finding team with ID:', id);
 
-    const team = await Team.findByIdAndUpdate(id, updateData, { new: true })
-      .populate('league', 'name');
-
-    if (!team) {
+    // Find existing team
+    const existingTeam = await Team.findById(id);
+    if (!existingTeam) {
+      console.log('❌ Team not found:', id);
       return res.status(404).json({ error: 'Team not found' });
     }
 
+    console.log('✅ Found existing team:', existingTeam.name);
+
+    // ✅ Prepare update data (only include provided fields)
+    const updateData = {};
+    
+    if (name !== undefined) updateData.name = name;
+    if (logo !== undefined) updateData.logo = logo;
+    if (stadium !== undefined) updateData.stadium = stadium;
+    if (coach !== undefined) updateData.coach = coach;
+    if (founded !== undefined) updateData.founded = founded ? parseInt(founded) : null;
+    if (description !== undefined) updateData.description = description;
+    if (colors !== undefined) updateData.colors = colors;
+    if (website !== undefined) updateData.website = website;
+    if (email !== undefined) updateData.email = email;
+    if (phone !== undefined) updateData.phone = phone;
+    if (captain !== undefined) updateData.captain = captain;
+    if (homeVenue !== undefined) updateData.homeVenue = homeVenue;
+    if (awayVenue !== undefined) updateData.awayVenue = awayVenue;
+
+    console.log('📝 Update data:', updateData);
+
+    // ✅ Check for name conflicts (if name is being updated)
+    if (name && name !== existingTeam.name) {
+      const nameConflict = await Team.findOne({ 
+        name, 
+        league: existingTeam.league, 
+        _id: { $ne: id } 
+      });
+      
+      if (nameConflict) {
+        return res.status(400).json({ 
+          error: 'Team name already exists in this league' 
+        });
+      }
+    }
+
+    // ✅ Perform the update
+    const updatedTeam = await Team.findByIdAndUpdate(
+      id, 
+      updateData, 
+      { new: true, runValidators: true }
+    ).populate('league', 'name');
+
+    if (!updatedTeam) {
+      return res.status(404).json({ error: 'Failed to update team' });
+    }
+
+    console.log('✅ Team updated successfully:', updatedTeam.name);
+
     res.status(200).json({
       message: 'Team updated successfully',
-      team
+      team: updatedTeam
     });
   } catch (error) {
     console.error('Update team error:', error);
@@ -189,29 +289,40 @@ async function updateTeam(req, res) {
 
 async function deleteTeam(req, res) {
   try {
+    console.log('🗑️ Deleting team');
     const { id } = req.query;
 
     if (!id) {
       return res.status(400).json({ error: 'Team ID is required' });
     }
 
+    console.log('🔍 Finding team to delete:', id);
+
     const team = await Team.findById(id);
     if (!team) {
       return res.status(404).json({ error: 'Team not found' });
     }
 
-    // Delete all players in the team
-    await Player.deleteMany({ team: id });
+    console.log('✅ Found team to delete:', team.name);
+
+    // Delete all players in the team first
+    const playersDeleted = await Player.deleteMany({ team: id });
+    console.log(`🗑️ Deleted ${playersDeleted.deletedCount} players`);
     
     // Delete the team
     await Team.findByIdAndDelete(id);
+    console.log('✅ Team deleted');
 
     // Update league teams count
     await League.findByIdAndUpdate(team.league, {
       $inc: { teamsCount: -1 }
     });
+    console.log('✅ League count updated');
 
-    res.status(200).json({ message: 'Team deleted successfully' });
+    res.status(200).json({ 
+      message: 'Team deleted successfully',
+      playersDeleted: playersDeleted.deletedCount
+    });
   } catch (error) {
     console.error('Delete team error:', error);
     res.status(500).json({ error: 'Failed to delete team' });
