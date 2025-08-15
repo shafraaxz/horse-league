@@ -1,10 +1,10 @@
-// pages/api/matches/generate-schedule.js - COMPLETELY FIXED
+// pages/api/matches/generate-schedule.js - COMPLETELY FIXED with TRUE RANDOMIZATION
 import connectDB from '../../../lib/mongodb';
 import { Team, Match, League } from '../../../lib/models';
 import { authMiddleware } from '../../../lib/auth';
 
 async function handler(req, res) {
-  console.log('🎯 SCHEDULE GENERATION STARTED');
+  console.log('🎯 SCHEDULE GENERATION STARTED with TRUE RANDOMIZATION');
   console.log('Method:', req.method);
   console.log('Body:', JSON.stringify(req.body, null, 2));
   
@@ -52,19 +52,14 @@ async function handler(req, res) {
     const deletedCount = deleteResult.deletedCount;
     console.log(`✅ Deleted ${deletedCount} existing matches`);
     
-    // ✅ GENERATE UNIQUE SEED: Ensure different schedules each time
-    const generationSeed = Date.now() + Math.random();
-    console.log(`🎲 Generation seed: ${generationSeed}`);
-    
-    // ✅ GENERATE VARIED SCHEDULE
-    console.log('⚽ Generating VARIED round-robin schedule...');
-    const matches = generateProperRoundRobin({
+    // ✅ GENERATE FULLY RANDOMIZED SCHEDULE
+    console.log('🎲 Generating FULLY RANDOMIZED double round-robin schedule...');
+    const matches = generateRandomizedDoubleRoundRobin({
       teams,
       format: format || 'double-round-robin',
       startDate,
       daysBetween: parseInt(daysBetween) || 7,
-      timePeriods,
-      seed: generationSeed // Pass seed for reproducible randomization if needed
+      timePeriods
     });
     
     console.log(`📅 Generated ${matches.length} matches`);
@@ -119,7 +114,7 @@ async function handler(req, res) {
     // Update league match count
     await League.findByIdAndUpdate(leagueId, {
       matchesCount: savedMatches.length,
-      lastScheduleGenerated: new Date() // Track when schedule was last generated
+      lastScheduleGenerated: new Date()
     });
     
     // Final verification
@@ -129,11 +124,11 @@ async function handler(req, res) {
     // Generate summary
     const summary = generateScheduleSummary(savedMatches, teams);
     
-    console.log('🎉 VARIED schedule generation completed successfully!');
+    console.log('🎉 FULLY RANDOMIZED schedule generation completed successfully!');
     
     return res.status(200).json({
       success: true,
-      message: `Fresh schedule generated! ${savedMatches.length} matches created with variation.`,
+      message: `Fully randomized schedule generated! ${savedMatches.length} matches created.`,
       matchesCreated: savedMatches.length,
       data: {
         matchesCreated: savedMatches.length,
@@ -141,8 +136,7 @@ async function handler(req, res) {
         format: format,
         totalRounds: Math.max(...matches.map(m => m.round)),
         summary,
-        validation,
-        generationSeed // Include seed in response for debugging
+        validation
       }
     });
     
@@ -155,9 +149,9 @@ async function handler(req, res) {
   }
 }
 
-// ✅ ENHANCED: Generate varied schedules with randomization
-function generateProperRoundRobin({ teams, format, startDate, daysBetween, timePeriods }) {
-  console.log('🔄 Starting ENHANCED round-robin algorithm with randomization...');
+// ✅ NEW: Fully randomized double round-robin generator
+function generateRandomizedDoubleRoundRobin({ teams, format, startDate, daysBetween, timePeriods }) {
+  console.log('🎲 Starting FULLY RANDOMIZED double round-robin generation...');
   console.log(`Teams: ${teams.length}, Format: ${format}`);
   
   if (teams.length < 2) {
@@ -165,99 +159,128 @@ function generateProperRoundRobin({ teams, format, startDate, daysBetween, timeP
     return [];
   }
   
-  const matches = [];
+  const teamList = [...teams];
+  const teamCount = teamList.length;
   
-  // ✅ RANDOMIZE: Shuffle teams for variety in fixtures
-  const shuffledTeams = [...teams].sort(() => Math.random() - 0.5);
-  console.log('🎲 Teams shuffled for variation');
+  // ✅ STEP 1: Generate ALL possible pairings
+  const allPairings = [];
   
-  const teamCount = shuffledTeams.length;
-  
-  // ✅ FIXED: If odd number of teams, add a "bye" team
-  let teamList = [...shuffledTeams];
-  if (teamCount % 2 === 1) {
-    teamList.push({ _id: 'BYE', name: 'BYE' });
-  }
-  
-  const totalTeams = teamList.length;
-  const rounds = totalTeams - 1;
-  
-  // ✅ PROPER ROUND-ROBIN: Generate first round-robin (each team plays each other once)
-  for (let round = 0; round < rounds; round++) {
-    const roundMatches = [];
-    
-    // ✅ CIRCLE METHOD: Fixed team at position 0, rotate others
-    for (let i = 0; i < totalTeams / 2; i++) {
-      const home = teamList[i];
-      const away = teamList[totalTeams - 1 - i];
+  for (let i = 0; i < teamCount; i++) {
+    for (let j = i + 1; j < teamCount; j++) {
+      const team1 = teamList[i];
+      const team2 = teamList[j];
       
-      // Skip if either team is the "bye" team
-      if (home._id !== 'BYE' && away._id !== 'BYE') {
-        // ✅ RANDOMIZE: Sometimes swap home/away for variety
-        const shouldSwap = Math.random() > 0.5;
+      // Add both home/away combinations for double round-robin
+      if (format === 'double-round-robin') {
+        allPairings.push({
+          homeTeam: team1._id,
+          awayTeam: team2._id,
+          homeName: team1.name,
+          awayName: team2.name,
+          pairId: `${team1._id}-${team2._id}`,
+          leg: 'first'
+        });
         
-        roundMatches.push({
-          homeTeam: shouldSwap ? away._id : home._id,
-          awayTeam: shouldSwap ? home._id : away._id,
-          round: round + 1,
-          isFirstLeg: true
+        allPairings.push({
+          homeTeam: team2._id,
+          awayTeam: team1._id,
+          homeName: team2.name,
+          awayName: team1.name,
+          pairId: `${team1._id}-${team2._id}`,
+          leg: 'second'
+        });
+      } else {
+        // Single round-robin: randomly choose who plays home
+        const homeFirst = Math.random() > 0.5;
+        allPairings.push({
+          homeTeam: homeFirst ? team1._id : team2._id,
+          awayTeam: homeFirst ? team2._id : team1._id,
+          homeName: homeFirst ? team1.name : team2.name,
+          awayName: homeFirst ? team2.name : team1.name,
+          pairId: `${team1._id}-${team2._id}`,
+          leg: 'only'
         });
       }
     }
-    
-    // ✅ RANDOMIZE: Shuffle matches within each round
-    roundMatches.sort(() => Math.random() - 0.5);
-    matches.push(...roundMatches);
-    
-    // ✅ ROTATE: Keep first team fixed, rotate others clockwise
-    if (totalTeams > 2) {
-      const temp = teamList[1];
-      for (let i = 1; i < totalTeams - 1; i++) {
-        teamList[i] = teamList[i + 1];
-      }
-      teamList[totalTeams - 1] = temp;
-    }
   }
   
-  // ✅ DOUBLE ROUND-ROBIN: Add return fixtures with smart scheduling
-  if (format === 'double-round-robin') {
-    console.log('🔄 Adding second round-robin with smart variation...');
+  console.log(`📊 Generated ${allPairings.length} total pairings`);
+  
+  // ✅ STEP 2: COMPLETELY RANDOMIZE the order of all matches
+  const shuffledPairings = [...allPairings];
+  
+  // Fisher-Yates shuffle for true randomization
+  for (let i = shuffledPairings.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffledPairings[i], shuffledPairings[j]] = [shuffledPairings[j], shuffledPairings[i]];
+  }
+  
+  console.log('🎲 All pairings completely randomized');
+  
+  // ✅ STEP 3: Distribute matches across rounds with constraints
+  const rounds = [];
+  const teamSchedule = {}; // Track when each team last played
+  
+  // Initialize team schedule tracking
+  teamList.forEach(team => {
+    teamSchedule[team._id] = { lastRound: -2 }; // Allow teams to play in consecutive rounds initially
+  });
+  
+  // ✅ SMART DISTRIBUTION: Try to spread matches evenly while maintaining randomness
+  const matchesPerRound = Math.ceil(teamCount / 2); // Maximum matches per round
+  let currentRound = 1;
+  let currentRoundMatches = [];
+  let usedTeamsThisRound = new Set();
+  
+  shuffledPairings.forEach((pairing, index) => {
+    const homeTeam = pairing.homeTeam;
+    const awayTeam = pairing.awayTeam;
     
-    const firstRoundMatches = [...matches];
-    const secondRoundMatches = [];
+    // Check if both teams are available this round
+    const canPlayThisRound = !usedTeamsThisRound.has(homeTeam) && !usedTeamsThisRound.has(awayTeam);
     
-    // ✅ ENHANCED: Create return fixtures with variation
-    firstRoundMatches.forEach((match, index) => {
-      // Add some variation to when return fixtures are scheduled
-      const baseRound = match.round + rounds;
-      const roundVariation = Math.floor(Math.random() * 3) - 1; // -1, 0, or +1
-      const adjustedRound = Math.max(baseRound + roundVariation, baseRound);
-      
-      secondRoundMatches.push({
-        homeTeam: match.awayTeam, // Swap home and away
-        awayTeam: match.homeTeam,
-        round: adjustedRound,
-        isFirstLeg: false
+    if (canPlayThisRound && currentRoundMatches.length < matchesPerRound) {
+      // Add to current round
+      currentRoundMatches.push({
+        ...pairing,
+        round: currentRound
       });
-    });
-    
-    // ✅ RANDOMIZE: Shuffle second round matches for better distribution
-    secondRoundMatches.sort(() => Math.random() - 0.5);
-    matches.push(...secondRoundMatches);
+      
+      usedTeamsThisRound.add(homeTeam);
+      usedTeamsThisRound.add(awayTeam);
+    } else {
+      // Move to next round
+      if (currentRoundMatches.length > 0) {
+        rounds.push(...currentRoundMatches);
+      }
+      
+      currentRound++;
+      currentRoundMatches = [{
+        ...pairing,
+        round: currentRound
+      }];
+      
+      usedTeamsThisRound = new Set([homeTeam, awayTeam]);
+    }
+  });
+  
+  // Add remaining matches
+  if (currentRoundMatches.length > 0) {
+    rounds.push(...currentRoundMatches);
   }
   
-  console.log(`📊 Generated ${matches.length} matches across ${format === 'double-round-robin' ? rounds * 2 : rounds} rounds`);
+  console.log(`📅 Distributed ${rounds.length} matches across ${currentRound} rounds`);
   
-  // ✅ ADD DATES AND TIMES with randomization
-  const scheduledMatches = addVariedScheduleDetails(matches, startDate, daysBetween, timePeriods);
+  // ✅ STEP 4: Add RANDOMIZED dates and times
+  const scheduledMatches = addRandomizedScheduleDetails(rounds, startDate, daysBetween, timePeriods);
   
-  console.log(`✅ Final varied schedule: ${scheduledMatches.length} matches`);
+  console.log(`✅ Final RANDOMIZED schedule: ${scheduledMatches.length} matches`);
   return scheduledMatches;
 }
 
-// ✅ ENHANCED: Add varied scheduling with randomization
-function addVariedScheduleDetails(matches, startDate, daysBetween, timePeriods) {
-  console.log('📅 Adding varied schedule details with randomization...');
+// ✅ ENHANCED: Add randomized scheduling with variation
+function addRandomizedScheduleDetails(matches, startDate, daysBetween, timePeriods) {
+  console.log('📅 Adding RANDOMIZED schedule details...');
   
   const scheduledMatches = [];
   
@@ -270,79 +293,84 @@ function addVariedScheduleDetails(matches, startDate, daysBetween, timePeriods) 
     matchesByRound[match.round].push(match);
   });
   
-  // Process each round in chronological order
+  // Process each round with RANDOMIZATION
   const sortedRounds = Object.keys(matchesByRound).sort((a, b) => parseInt(a) - parseInt(b));
   let currentDate = new Date(startDate);
   
-  // ✅ RANDOMIZE: Add some variation to the gaps between rounds
-  const baseGap = daysBetween;
-  
   sortedRounds.forEach((roundNum, roundIndex) => {
     const roundMatches = matchesByRound[roundNum];
-    console.log(`   Round ${roundNum}: ${roundMatches.length} matches on ${currentDate.toISOString().split('T')[0]}`);
+    console.log(`   Round ${roundNum}: ${roundMatches.length} matches`);
     
-    // ✅ RANDOMIZE: Shuffle matches within each round for variety
+    // ✅ RANDOMIZE: Shuffle matches within each round
     const shuffledMatches = [...roundMatches].sort(() => Math.random() - 0.5);
     
-    // ✅ RANDOMIZE: Sometimes schedule matches across multiple days in a round
-    const shouldSpreadRound = roundMatches.length > 2 && Math.random() > 0.6;
-    let dayOffset = 0;
+    // ✅ RANDOMIZE: Sometimes spread matches across multiple days in a round
+    const shouldSpreadRound = roundMatches.length >= 3 && Math.random() > 0.4;
+    const maxSpreadDays = Math.min(3, Math.floor(roundMatches.length / 2));
     
     shuffledMatches.forEach((match, matchIndex) => {
-      // ✅ ENHANCED: Spread some matches across a few days within the round
-      if (shouldSpreadRound && matchIndex > 0 && matchIndex % 2 === 0) {
-        dayOffset += Math.random() > 0.5 ? 1 : 2; // Add 1-2 days randomly
+      // ✅ RANDOMIZE: Date within the round period
+      let dayOffset = 0;
+      if (shouldSpreadRound && matchIndex > 0) {
+        dayOffset = Math.floor(Math.random() * maxSpreadDays);
       }
       
       const matchDate = new Date(currentDate.getTime() + dayOffset * 24 * 60 * 60 * 1000);
       
-      // ✅ RANDOMIZE: Assign times with some variation
+      // ✅ RANDOMIZE: Time selection
       const timeIndex = Math.floor(Math.random() * timePeriods.length);
       
-      // ✅ ENHANCED: Add some random venues for variety
+      // ✅ RANDOMIZE: Venue selection with bias toward home stadiums
       const venues = [
         'Manadhoo Futsal Ground',
-        'Central Arena',
+        'Central Arena', 
         'Sports Complex A',
-        'Main Stadium'
+        'Community Ground'
       ];
-      const venue = venues[Math.floor(Math.random() * venues.length)];
+      
+      // 70% chance of Manadhoo, 30% random venue
+      const venue = Math.random() > 0.3 ? 'Manadhoo Futsal Ground' : venues[Math.floor(Math.random() * venues.length)];
       
       scheduledMatches.push({
-        ...match,
+        homeTeam: match.homeTeam,
+        awayTeam: match.awayTeam,
+        round: match.round,
         date: matchDate.toISOString().split('T')[0],
         time: timePeriods[timeIndex],
         venue: venue
       });
     });
     
-    // ✅ RANDOMIZE: Vary the gap to next round (±1-2 days)
+    // ✅ RANDOMIZE: Days between rounds (add variation)
+    const baseGap = daysBetween;
     const gapVariation = Math.floor(Math.random() * 3) - 1; // -1, 0, or +1
-    const actualGap = Math.max(baseGap + gapVariation, 3); // Minimum 3 days between rounds
+    const actualGap = Math.max(baseGap + gapVariation, 3); // Minimum 3 days
     
     // Move to next round date
     currentDate = new Date(currentDate.getTime() + actualGap * 24 * 60 * 60 * 1000);
   });
   
-  // ✅ FINAL SHUFFLE: Randomize the final order within each week
+  // ✅ FINAL RANDOMIZATION: Shuffle matches one more time while preserving dates
   scheduledMatches.sort((a, b) => {
     const dateA = new Date(a.date);
     const dateB = new Date(b.date);
     
     if (dateA.getTime() === dateB.getTime()) {
-      // Same date - randomize order
-      return Math.random() - 0.5;
+      // Same date - add some randomization while keeping logical time order
+      const timeA = a.time.replace(':', '');
+      const timeB = b.time.replace(':', '');
+      return parseInt(timeA) - parseInt(timeB) + (Math.random() - 0.5) * 0.1;
     }
     return dateA - dateB;
   });
   
-  console.log(`✅ Added varied schedule details to ${scheduledMatches.length} matches`);
+  console.log(`✅ Added RANDOMIZED schedule details to ${scheduledMatches.length} matches`);
   return scheduledMatches;
 }
 
-// ✅ COMPREHENSIVE VALIDATION
+// ✅ ENHANCED VALIDATION for randomized schedule
 function validateGeneratedSchedule(matches, teams, format) {
-  console.log('🔍 Validating generated schedule...');
+  console.log('🔍 Validating randomized schedule...');
   
   const errors = [];
   const teamStats = {};
@@ -393,7 +421,7 @@ function validateGeneratedSchedule(matches, teams, format) {
       errors.push(`${team.name}: ${stats.totalMatches} matches (expected ${expectedTotal})`);
     }
     
-    // For double round-robin, home/away should be balanced
+    // For double round-robin, home/away should be reasonably balanced (allow 1 difference)
     if (format === 'double-round-robin') {
       const diff = Math.abs(stats.homeMatches - stats.awayMatches);
       if (diff > 1) {
@@ -423,7 +451,7 @@ function validateGeneratedSchedule(matches, teams, format) {
   if (errors.length > 0) {
     console.log('❌ Validation errors:', errors);
   } else {
-    console.log('✅ Schedule validation passed!');
+    console.log('✅ Randomized schedule validation passed!');
   }
   
   return {
@@ -434,9 +462,30 @@ function validateGeneratedSchedule(matches, teams, format) {
       teamsCount: teams.length,
       expectedMatchesPerTeam: expectedTotal,
       totalRounds: Math.max(...matches.map(m => m.round)),
-      pairingsCount: Object.keys(pairings).length
+      pairingsCount: Object.keys(pairings).length,
+      randomizationScore: calculateRandomizationScore(matches, teams)
     }
   };
+}
+
+// ✅ NEW: Calculate how random the schedule is
+function calculateRandomizationScore(matches, teams) {
+  // Simple score based on how varied the round distribution is
+  const roundDistribution = {};
+  matches.forEach(match => {
+    roundDistribution[match.round] = (roundDistribution[match.round] || 0) + 1;
+  });
+  
+  const values = Object.values(roundDistribution);
+  const avg = values.reduce((a, b) => a + b, 0) / values.length;
+  const variance = values.reduce((sum, val) => sum + Math.pow(val - avg, 2), 0) / values.length;
+  
+  // Lower variance = more even distribution = better randomization
+  // Convert to a 0-100 score where 100 is perfectly random
+  const maxVariance = Math.pow(avg, 2);
+  const score = Math.max(0, 100 - (variance / maxVariance) * 100);
+  
+  return Math.round(score);
 }
 
 // Generate schedule summary
@@ -449,6 +498,11 @@ function generateScheduleSummary(matches, teams) {
     dateRange: {
       start: null,
       end: null
+    },
+    randomizationInfo: {
+      venueVariety: new Set(matches.map(m => m.venue)).size,
+      timeVariety: new Set(matches.map(m => m.time)).size,
+      roundDistribution: {}
     }
   };
   
@@ -462,6 +516,12 @@ function generateScheduleSummary(matches, teams) {
       home: homeMatches,
       away: awayMatches
     };
+  });
+  
+  // Round distribution
+  matches.forEach(match => {
+    summary.randomizationInfo.roundDistribution[match.round] = 
+      (summary.randomizationInfo.roundDistribution[match.round] || 0) + 1;
   });
   
   // Date range

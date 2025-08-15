@@ -1,84 +1,215 @@
-import connectDB from '../../../lib/mongodb';
-import { Admin } from '../../../lib/models';
-import { hashPassword, authMiddleware } from '../../../lib/auth';
+// pages/api/admin/index.js - Admin Management API
+import { connectToDatabase } from '../../../lib/mongodb';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
-async function handler(req, res) {
-  await connectDB();
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-  switch (req.method) {
-    case 'GET':
-      return getAdmins(req, res);
-    case 'POST':
-      return createAdmin(req, res);
-    case 'DELETE':
-      return deleteAdmin(req, res);
-    default:
-      return res.status(405).json({ error: 'Method not allowed' });
+// Middleware to verify admin authentication
+const verifyAdminAuth = (req) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) {
+    throw new Error('No token provided');
   }
-}
-
-async function getAdmins(req, res) {
+  
   try {
-    const admins = await Admin.find({}, { password: 0 }).sort({ createdAt: -1 });
-    res.status(200).json(admins);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return decoded;
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch admins' });
+    throw new Error('Invalid token');
+  }
+};
+
+export default async function handler(req, res) {
+  const { method } = req;
+
+  try {
+    const { db } = await connectToDatabase();
+    const adminsCollection = db.collection('admins');
+
+    switch (method) {
+      case 'GET':
+        return await getAdmins(req, res, adminsCollection);
+      case 'POST':
+        return await createAdmin(req, res, adminsCollection);
+      case 'PUT':
+        return await updateAdmin(req, res, adminsCollection);
+      case 'DELETE':
+        return await deleteAdmin(req, res, adminsCollection);
+      default:
+        res.setHeader('Allow', ['GET', 'POST', 'PUT', 'DELETE']);
+        return res.status(405).json({ error: `Method ${method} not allowed` });
+    }
+  } catch (error) {
+    console.error('Admin API error:', error);
+    return res.status(500).json({ error: 'Internal server error: ' + error.message });
   }
 }
 
-async function createAdmin(req, res) {
+// Get all admins (requires admin auth)
+async function getAdmins(req, res, adminsCollection) {
   try {
-    const { username, password, role } = req.body;
+    verifyAdminAuth(req);
+    
+    const admins = await adminsCollection.find({})
+      .project({ password: 0 }) // Don't return passwords
+      .toArray();
+    
+    return res.status(200).json(admins);
+  } catch (error) {
+    return res.status(401).json({ error: error.message });
+  }
+}
 
-    if (!username || !password || !role) {
-      return res.status(400).json({ error: 'All fields required' });
+// Create new admin
+async function createAdmin(req, res, adminsCollection) {
+  try {
+    verifyAdminAuth(req);
+    
+    const { username, password, email, role = 'admin', isActive = true } = req.body;
+    
+    // Validation
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
     }
-
-    // Check if admin already exists
-    const existingAdmin = await Admin.findOne({ username });
+    
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+    
+    // Check if username already exists
+    const existingAdmin = await adminsCollection.findOne({ username });
     if (existingAdmin) {
       return res.status(400).json({ error: 'Username already exists' });
     }
-
-    const hashedPassword = await hashPassword(password);
-    const admin = new Admin({
+    
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+    
+    // Create admin object
+    const newAdmin = {
       username,
       password: hashedPassword,
-      role
-    });
-
-    await admin.save();
-
-    res.status(201).json({
+      email: email || null,
+      role,
+      isActive,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    // Insert into database
+    const result = await adminsCollection.insertOne(newAdmin);
+    
+    // Return without password
+    const { password: _, ...adminResponse } = newAdmin;
+    adminResponse._id = result.insertedId;
+    
+    return res.status(201).json({
       message: 'Admin created successfully',
-      admin: {
-        id: admin._id,
-        username: admin.username,
-        role: admin.role
-      }
+      admin: adminResponse
     });
+    
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create admin' });
+    if (error.message === 'No token provided' || error.message === 'Invalid token') {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    return res.status(500).json({ error: error.message });
   }
 }
 
-async function deleteAdmin(req, res) {
+// Update admin (including password change)
+async function updateAdmin(req, res, adminsCollection) {
   try {
-    const { username } = req.query;
-
-    if (username === 'admin') {
-      return res.status(400).json({ error: 'Cannot delete default admin' });
+    verifyAdminAuth(req);
+    
+    const { username, password, email, role, isActive, _id } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
     }
-
-    const deletedAdmin = await Admin.findOneAndDelete({ username });
-    if (!deletedAdmin) {
+    
+    // Find existing admin
+    const existingAdmin = await adminsCollection.findOne({ 
+      $or: [
+        { _id: require('mongodb').ObjectId(_id) },
+        { username }
+      ]
+    });
+    
+    if (!existingAdmin) {
       return res.status(404).json({ error: 'Admin not found' });
     }
-
-    res.status(200).json({ message: 'Admin deleted successfully' });
+    
+    // Prepare update object
+    const updateData = {
+      email: email || null,
+      role: role || 'admin',
+      isActive: isActive !== undefined ? isActive : true,
+      updatedAt: new Date()
+    };
+    
+    // If password is provided, hash and update it
+    if (password && password.trim()) {
+      if (password.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters' });
+      }
+      updateData.password = await bcrypt.hash(password, 12);
+    }
+    
+    // Update in database
+    await adminsCollection.updateOne(
+      { _id: require('mongodb').ObjectId(_id) },
+      { $set: updateData }
+    );
+    
+    // Get updated admin (without password)
+    const updatedAdmin = await adminsCollection.findOne(
+      { _id: require('mongodb').ObjectId(_id) },
+      { projection: { password: 0 } }
+    );
+    
+    return res.status(200).json({
+      message: 'Admin updated successfully',
+      admin: updatedAdmin
+    });
+    
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete admin' });
+    if (error.message === 'No token provided' || error.message === 'Invalid token') {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    return res.status(500).json({ error: error.message });
   }
 }
 
-export default authMiddleware(handler);
+// Delete admin
+async function deleteAdmin(req, res, adminsCollection) {
+  try {
+    verifyAdminAuth(req);
+    
+    const { username } = req.query;
+    
+    if (!username) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    // Don't allow deleting the last admin
+    const adminCount = await adminsCollection.countDocuments({});
+    if (adminCount <= 1) {
+      return res.status(400).json({ error: 'Cannot delete the last admin user' });
+    }
+    
+    const result = await adminsCollection.deleteOne({ username });
+    
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'Admin not found' });
+    }
+    
+    return res.status(200).json({ message: 'Admin deleted successfully' });
+    
+  } catch (error) {
+    if (error.message === 'No token provided' || error.message === 'Invalid token') {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+}

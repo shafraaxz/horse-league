@@ -1,9 +1,9 @@
-// components/Schedule.js - Fixed with proper authentication
+// components/Schedule.js - Fixed to show ALL matches with pagination
 import React, { useState, useEffect } from 'react';
 import { 
   Calendar, Clock, MapPin, Edit, Trash2, Play, 
   Users, Filter, ChevronLeft, ChevronRight,
-  Plus, AlertCircle, Eye, Settings
+  Plus, AlertCircle, Eye, Settings, RefreshCw
 } from 'lucide-react';
 import LiveMatchManager from './LiveMatchManager';
 
@@ -27,25 +27,38 @@ const Schedule = ({
     date: 'all'
   });
   const [currentPage, setCurrentPage] = useState(1);
+  const [matchesPerPage, setMatchesPerPage] = useState(50); // ✅ Configurable matches per page
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  
-  const matchesPerPage = 10;
+  const [sortBy, setSortBy] = useState('date'); // ✅ Add sorting
 
-  // ✅ SAFE: Only use provided data, don't make additional API calls
+  // ✅ Debug: Log matches count
+  useEffect(() => {
+    console.log('📊 Schedule component received:', {
+      totalMatches: matches?.length || 0,
+      selectedLeague,
+      teams: teams?.length || 0,
+      players: players?.length || 0
+    });
+  }, [matches, selectedLeague, teams, players]);
+
+  // ✅ FIXED: Filter and sort all matches without artificial limits
   useEffect(() => {
     setIsLoading(true);
     setError(null);
     
     try {
-      // Filter matches safely
+      console.log('🔄 Filtering matches. Total available:', matches?.length || 0);
+      
+      // Start with all matches
       let filtered = matches || [];
       
-      // Apply filters
+      // Apply status filter
       if (filter.status !== 'all') {
         filtered = filtered.filter(match => match.status === filter.status);
       }
       
+      // Apply team filter
       if (filter.team !== 'all') {
         filtered = filtered.filter(match => 
           match.homeTeam?._id === filter.team || 
@@ -53,6 +66,7 @@ const Schedule = ({
         );
       }
       
+      // Apply date filter
       if (filter.date !== 'all') {
         const today = new Date().toISOString().split('T')[0];
         const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -70,20 +84,40 @@ const Schedule = ({
               weekEnd.setDate(weekStart.getDate() + 6);
               const matchDate = new Date(match.date);
               return matchDate >= weekStart && matchDate <= weekEnd;
+            case 'past':
+              return new Date(match.date) < new Date(today);
+            case 'upcoming':
+              return new Date(match.date) >= new Date(today);
             default:
               return true;
           }
         });
       }
       
-      // Sort by date and time
+      // ✅ ENHANCED: Sort matches
       filtered.sort((a, b) => {
-        if (a.date !== b.date) {
-          return new Date(a.date) - new Date(b.date);
+        switch (sortBy) {
+          case 'date':
+            // Sort by date first, then by time
+            if (a.date !== b.date) {
+              return new Date(a.date) - new Date(b.date);
+            }
+            return (a.time || '00:00').localeCompare(b.time || '00:00');
+          case 'date_desc':
+            if (a.date !== b.date) {
+              return new Date(b.date) - new Date(a.date);
+            }
+            return (b.time || '00:00').localeCompare(a.time || '00:00');
+          case 'round':
+            return (a.round || 0) - (b.round || 0);
+          case 'status':
+            return (a.status || '').localeCompare(b.status || '');
+          default:
+            return 0;
         }
-        return (a.time || '00:00').localeCompare(b.time || '00:00');
       });
       
+      console.log('✅ Filtered matches:', filtered.length, 'of', matches?.length || 0);
       setFilteredMatches(filtered);
       setCurrentPage(1); // Reset to first page when filters change
     } catch (err) {
@@ -93,7 +127,7 @@ const Schedule = ({
     } finally {
       setIsLoading(false);
     }
-  }, [matches, filter]);
+  }, [matches, filter, sortBy]);
 
   // Handle live match updates
   const handleLiveMatchUpdate = async (matchId, updateData) => {
@@ -105,7 +139,6 @@ const Schedule = ({
     try {
       setIsLoading(true);
       
-      // ✅ FIXED: Use proper live match API endpoint without authentication issues
       const token = localStorage.getItem('adminToken');
       if (!token) {
         alert('Authentication required. Please login again.');
@@ -126,7 +159,6 @@ const Schedule = ({
 
       if (response.status === 401) {
         alert('Session expired. Please login again.');
-        // Don't automatically logout from here, let parent handle it
         return;
       }
 
@@ -134,7 +166,6 @@ const Schedule = ({
         const result = await response.json();
         console.log('Live match updated:', result);
         
-        // Refresh data through parent component
         if (onRefresh) {
           onRefresh();
         }
@@ -150,11 +181,19 @@ const Schedule = ({
     }
   };
 
-  // Pagination logic
+  // ✅ IMPROVED: Pagination logic
   const totalPages = Math.ceil(filteredMatches.length / matchesPerPage);
   const startIndex = (currentPage - 1) * matchesPerPage;
   const endIndex = startIndex + matchesPerPage;
   const currentMatches = filteredMatches.slice(startIndex, endIndex);
+
+  // ✅ ENHANCED: Pagination controls
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  const goToFirstPage = () => setCurrentPage(1);
+  const goToLastPage = () => setCurrentPage(totalPages);
 
   // Status badge styling
   const getStatusBadge = (status) => {
@@ -214,13 +253,14 @@ const Schedule = ({
   return (
     <div className="space-y-6">
       
-      {/* Header */}
+      {/* Header with Enhanced Info */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-white">Match Schedule</h2>
           <p className="text-slate-400">
-            {filteredMatches.length} match{filteredMatches.length !== 1 ? 'es' : ''} 
-            {filter.status !== 'all' && ` (${filter.status})`}
+            Showing {currentMatches.length} of {filteredMatches.length} matches
+            {filteredMatches.length !== matches.length && ` (${matches.length} total)`}
+            {filter.status !== 'all' && ` • Filtered by: ${filter.status}`}
           </p>
         </div>
         
@@ -232,17 +272,18 @@ const Schedule = ({
             <button
               onClick={onRefresh}
               disabled={isLoading}
-              className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
             >
+              <RefreshCw className="w-4 h-4" />
               Refresh
             </button>
           )}
         </div>
       </div>
 
-      {/* Filters */}
+      {/* ✅ ENHANCED: Filters with more options */}
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           
           {/* Status Filter */}
           <div>
@@ -288,7 +329,69 @@ const Schedule = ({
               <option value="today">Today</option>
               <option value="tomorrow">Tomorrow</option>
               <option value="this_week">This Week</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="past">Past</option>
             </select>
+          </div>
+
+          {/* ✅ NEW: Sort Options */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Sort By</label>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+            >
+              <option value="date">Date (Newest First)</option>
+              <option value="date_desc">Date (Oldest First)</option>
+              <option value="round">Round</option>
+              <option value="status">Status</option>
+            </select>
+          </div>
+
+          {/* ✅ NEW: Matches Per Page */}
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Per Page</label>
+            <select
+              value={matchesPerPage}
+              onChange={(e) => {
+                setMatchesPerPage(parseInt(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+            >
+              <option value={25}>25 matches</option>
+              <option value={50}>50 matches</option>
+              <option value={100}>100 matches</option>
+              <option value={200}>200 matches</option>
+              <option value={filteredMatches.length || 1000}>All matches</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Quick Stats */}
+        <div className="mt-4 pt-4 border-t border-slate-700">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center text-sm">
+            <div>
+              <div className="text-white font-bold">{matches.length}</div>
+              <div className="text-slate-400">Total</div>
+            </div>
+            <div>
+              <div className="text-blue-400 font-bold">{matches.filter(m => m.status === 'scheduled').length}</div>
+              <div className="text-slate-400">Scheduled</div>
+            </div>
+            <div>
+              <div className="text-red-400 font-bold">{matches.filter(m => m.status === 'live' || m.status === 'halftime').length}</div>
+              <div className="text-slate-400">Live</div>
+            </div>
+            <div>
+              <div className="text-green-400 font-bold">{matches.filter(m => m.status === 'finished').length}</div>
+              <div className="text-slate-400">Finished</div>
+            </div>
+            <div>
+              <div className="text-orange-400 font-bold">{filteredMatches.length}</div>
+              <div className="text-slate-400">Filtered</div>
+            </div>
           </div>
         </div>
       </div>
@@ -418,30 +521,50 @@ const Schedule = ({
         </div>
       )}
 
-      {/* Pagination */}
+      {/* ✅ ENHANCED: Pagination with more controls */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-4">
-          <button
-            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-            disabled={currentPage === 1}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Previous
-          </button>
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goToFirstPage}
+              disabled={currentPage === 1}
+              className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              First
+            </button>
+            <button
+              onClick={() => goToPage(currentPage - 1)}
+              disabled={currentPage === 1}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Previous
+            </button>
 
-          <span className="text-slate-400">
-            Page {currentPage} of {totalPages}
-          </span>
+            <span className="text-slate-400 px-4">
+              Page {currentPage} of {totalPages}
+            </span>
 
-          <button
-            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-            disabled={currentPage === totalPages}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Next
-            <ChevronRight className="w-4 h-4" />
-          </button>
+            <button
+              onClick={() => goToPage(currentPage + 1)}
+              disabled={currentPage === totalPages}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={goToLastPage}
+              disabled={currentPage === totalPages}
+              className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Last
+            </button>
+          </div>
+          
+          <div className="text-sm text-slate-400">
+            Showing {startIndex + 1}-{Math.min(endIndex, filteredMatches.length)} of {filteredMatches.length} matches
+          </div>
         </div>
       )}
 

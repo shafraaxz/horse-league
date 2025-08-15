@@ -1,4 +1,4 @@
-// pages/api/matches/index.js - FIXED Match API with proper edit support
+// pages/api/matches/index.js - FIXED: Remove 50 match limit for league queries
 import connectDB from '../../../lib/mongodb';
 import { Match, Team, League } from '../../../lib/models';
 import { authMiddleware } from '../../../lib/auth';
@@ -30,12 +30,18 @@ async function handler(req, res) {
 
 async function getMatches(req, res) {
   try {
-    const { league, status, date, limit = 50 } = req.query;
+    const { league, status, date, limit, team } = req.query;
     
     let filter = {};
     
     if (league) filter.league = league;
     if (status) filter.status = status;
+    if (team) {
+      filter.$or = [
+        { homeTeam: team },
+        { awayTeam: team }
+      ];
+    }
     if (date) {
       const queryDate = new Date(date);
       const nextDay = new Date(queryDate.getTime() + 24 * 60 * 60 * 1000);
@@ -45,12 +51,25 @@ async function getMatches(req, res) {
       };
     }
 
-    const matches = await Match.find(filter)
+    // ✅ FIXED: Only apply limit if explicitly requested, otherwise get ALL matches for league
+    let query = Match.find(filter)
       .populate('homeTeam', 'name logo')
       .populate('awayTeam', 'name logo')
       .populate('league', 'name')
-      .sort({ date: 1, time: 1 })
-      .limit(parseInt(limit));
+      .sort({ date: 1, time: 1, round: 1 });
+
+    // Only apply limit if specifically requested (not for league queries)
+    if (limit && !league) {
+      query = query.limit(parseInt(limit));
+    } else if (limit && league) {
+      // For league queries, still allow explicit limit override
+      query = query.limit(parseInt(limit));
+    }
+    // If no limit specified and it's a league query, get ALL matches (no limit)
+
+    const matches = await query;
+
+    console.log(`📊 Returning ${matches.length} matches for league ${league || 'all'}`);
 
     res.status(200).json(matches);
   } catch (error) {
@@ -63,7 +82,7 @@ async function createMatch(req, res) {
   try {
     console.log('🆕 Creating new match:', req.body);
     
-    const { homeTeam, awayTeam, leagueId, date, time, venue, referee } = req.body;
+    const { homeTeam, awayTeam, leagueId, date, time, venue, referee, round } = req.body;
     
     // Validate required fields
     if (!homeTeam || !awayTeam || !leagueId) {
@@ -97,9 +116,12 @@ async function createMatch(req, res) {
       return res.status(400).json({ error: 'League not found' });
     }
     
-    // Get next round number
-    const lastMatch = await Match.findOne({ league: leagueId }).sort({ round: -1 });
-    const nextRound = lastMatch ? lastMatch.round + 1 : 1;
+    // Get next round number if not specified
+    let nextRound = round;
+    if (!nextRound) {
+      const lastMatch = await Match.findOne({ league: leagueId }).sort({ round: -1 });
+      nextRound = lastMatch ? lastMatch.round + 1 : 1;
+    }
     
     // Create match
     const matchData = {
@@ -156,12 +178,12 @@ async function createMatch(req, res) {
   }
 }
 
-// ✅ FIXED: Proper match update function
+// ✅ ENHANCED: Proper match update function
 async function updateMatch(req, res) {
   try {
     console.log('🔄 Updating match:', req.body);
     
-    const { id, homeTeam, awayTeam, date, time, venue, referee, score, status } = req.body;
+    const { id, homeTeam, awayTeam, date, time, venue, referee, score, status, round } = req.body;
     
     if (!id) {
       return res.status(400).json({ error: 'Match ID is required for update' });
@@ -186,6 +208,7 @@ async function updateMatch(req, res) {
     if (venue !== undefined) updateData.venue = venue;
     if (referee !== undefined) updateData.referee = referee;
     if (status !== undefined) updateData.status = status;
+    if (round !== undefined) updateData.round = round;
     
     // Handle score updates
     if (score !== undefined) {

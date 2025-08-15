@@ -7,6 +7,259 @@ import {
   Database, Bug, Zap, AlertTriangle
 } from 'lucide-react';
 
+// Add these handlers to your AdminPanel.js component
+
+// Import the new components at the top
+import PasswordChangeModal from './PasswordChangeModal';
+
+// Add this to your modal state
+const [modals, setModals] = useState({
+  league: { open: false, data: null },
+  team: { open: false, data: null },
+  player: { open: false, data: null },
+  match: { open: false, data: null },
+  schedule: { open: false, data: null },
+  admin: { open: false, data: null },
+  passwordChange: { open: false, data: null } // Add this line
+});
+
+// Add these new handler functions
+
+// Load admins
+const loadAdmins = async () => {
+  try {
+    const admins = await apiCall('/admin');
+    setData(prev => ({ ...prev, admins: admins || [] }));
+  } catch (error) {
+    console.error('Failed to load admins:', error);
+    showToast('Failed to load admin users: ' + error.message, 'error');
+  }
+};
+
+// Save admin (create or update)
+const handleSaveAdmin = async (formData) => {
+  try {
+    setLoading(true);
+    console.log('💾 Saving admin:', formData);
+    
+    const method = formData._id ? 'PUT' : 'POST';
+    
+    const result = await apiCall('/admin', {
+      method,
+      body: JSON.stringify(formData)
+    });
+
+    console.log('✅ Admin save result:', result);
+    
+    // Reload admins list
+    await loadAdmins();
+    
+    closeModal('admin');
+    showToast(formData._id ? 'Admin updated successfully!' : 'Admin created successfully!');
+    
+  } catch (error) {
+    console.error('Save admin error:', error);
+    showToast('Failed to save admin: ' + error.message, 'error');
+  } finally {
+    setLoading(false);
+  }
+};
+
+// Password change handler
+const handlePasswordChange = async (passwordData) => {
+  try {
+    setLoading(true);
+    
+    const response = await fetch('/api/auth/change-password', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`
+      },
+      body: JSON.stringify(passwordData)
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Password change failed');
+    }
+
+    const result = await response.json();
+    console.log('✅ Password changed successfully:', result);
+    
+    showToast('Password changed successfully!');
+    
+  } catch (error) {
+    console.error('Password change error:', error);
+    throw error; // Re-throw to be handled by the modal
+  } finally {
+    setLoading(false);
+  }
+};
+
+// Update the admin section JSX (replace the existing admin section):
+
+{activeSection === 'admin' && (
+  <div className="space-y-6">
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <h2 className="text-2xl lg:text-3xl font-bold text-white">Admin Management</h2>
+        <p className="text-slate-400 mt-1">Manage admin users and permissions</p>
+      </div>
+      <div className="flex gap-2">
+        <button
+          onClick={() => openModal('passwordChange')}
+          className="flex items-center space-x-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-2 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200"
+        >
+          <Key className="w-4 h-4" />
+          <span>Change Password</span>
+        </button>
+        <button
+          onClick={() => openModal('admin')}
+          className="flex items-center space-x-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-4 py-2 rounded-lg hover:from-orange-600 hover:to-orange-700 transition-all duration-200"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Add Admin</span>
+        </button>
+      </div>
+    </div>
+
+    <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <Shield className="w-6 h-6 text-orange-400" />
+        <h3 className="text-orange-400 font-bold text-lg">Security Notice</h3>
+      </div>
+      <p className="text-slate-300">
+        Admin management allows you to control who has access to the administrative functions of the futsal league system. 
+        Only grant admin access to trusted individuals.
+      </p>
+    </div>
+
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Current User Card */}
+      <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-blue-500/50">
+        <div className="flex items-center justify-between mb-4">
+          <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
+            <Shield className="w-6 h-6 text-white" />
+          </div>
+          <span className="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm font-medium">
+            Current User
+          </span>
+        </div>
+        <h3 className="text-lg font-semibold text-white mb-2">{currentUser?.username || 'admin'}</h3>
+        <div className="space-y-1 text-sm text-slate-400 mb-4">
+          <p>Role: {currentUser?.role || 'Administrator'}</p>
+          <p>Status: Active</p>
+          {currentUser?.email && <p>Email: {currentUser.email}</p>}
+        </div>
+        <button
+          onClick={() => openModal('passwordChange')}
+          className="w-full flex items-center justify-center gap-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-4 py-2 rounded-lg transition-colors"
+        >
+          <Key className="w-4 h-4" />
+          <span>Change Password</span>
+        </button>
+      </div>
+
+      {/* Other Admin Users */}
+      {data.admins && data.admins.length > 0 && data.admins
+        .filter(admin => admin.username !== currentUser?.username)
+        .map(admin => (
+        <div key={admin._id} className="bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/50 hover:border-slate-600/50 transition-all duration-200">
+          <div className="flex items-center justify-between mb-4">
+            <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-green-600 rounded-xl flex items-center justify-center">
+              <User className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => openModal('admin', admin)}
+                className="text-slate-400 hover:text-white transition-colors p-2 hover:bg-slate-700/50 rounded-lg"
+                title="Edit Admin"
+              >
+                <Edit className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleDeleteItem('admin', admin.username)}
+                className="text-red-400 hover:text-red-300 transition-colors p-2 hover:bg-slate-700/50 rounded-lg"
+                title="Delete Admin"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">{admin.username}</h3>
+          <div className="space-y-1 text-sm text-slate-400">
+            <p>Role: {admin.role || 'Admin'}</p>
+            <p>Status: {admin.isActive ? 'Active' : 'Inactive'}</p>
+            {admin.email && <p>Email: {admin.email}</p>}
+            <p>Created: {new Date(admin.createdAt).toLocaleDateString()}</p>
+          </div>
+        </div>
+      ))}
+
+      {/* Add New Admin Card */}
+      <div className="bg-slate-800/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-700/50 border-dashed hover:border-orange-500/50 transition-all duration-200">
+        <button
+          onClick={() => openModal('admin')}
+          className="w-full h-full flex flex-col items-center justify-center text-center py-8"
+        >
+          <div className="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center mb-4">
+            <Plus className="w-6 h-6 text-orange-400" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">Add New Admin</h3>
+          <p className="text-slate-400 text-sm">Create a new admin account with specific permissions</p>
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+// Add the modals at the bottom (after your existing modals):
+
+{modals.admin.open && (
+  <AdminModal
+    isOpen={modals.admin.open}
+    onClose={() => closeModal('admin')}
+    admin={modals.admin.data}
+    onSave={handleSaveAdmin}
+  />
+)}
+
+{modals.passwordChange.open && (
+  <PasswordChangeModal
+    isOpen={modals.passwordChange.open}
+    onClose={() => closeModal('passwordChange')}
+    currentUser={currentUser}
+    onPasswordChange={handlePasswordChange}
+  />
+)}
+
+// Make sure to call loadAdmins() in your loadInitialDataWithToken function:
+const loadInitialDataWithToken = async (token) => {
+  try {
+    setLoading(true);
+    console.log('📊 Loading initial data...');
+    
+    const leagues = await apiCall('/leagues', {}, token);
+    await loadAdmins(); // Add this line
+    
+    setData(prev => ({
+      ...prev,
+      leagues: leagues || []
+    }));
+
+    if (leagues?.length > 0 && !selectedLeague) {
+      setSelectedLeague(leagues[0]._id);
+      await loadLeagueData(leagues[0]._id);
+    }
+  } catch (error) {
+    console.error('Failed to load initial data:', error);
+    showToast('Failed to load some data: ' + error.message, 'error');
+  } finally {
+    setLoading(false);
+  }
+};
+
 // Import modal components
 import LeagueModal from './LeagueModal';
 import TeamModal from './TeamModal';
