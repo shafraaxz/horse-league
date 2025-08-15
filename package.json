@@ -1,0 +1,44 @@
+{
+  "name": "horse-futsal-league",
+  "version": "1.0.0",
+  "description": "The Horse Futsal League Management System",
+  "main": "index.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^1.41.3",
+    "formidable": "^3.5.1",
+    "jsonwebtoken": "^9.0.2",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.6.0",
+    "lucide-react": "^0.263.1",
+    "mongoose": "^8.17.1",
+    "next": "^14.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0",
+    "recharts": "^2.8.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.33.0",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "autoprefixer": "^10.4.14",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.0.0",
+    "eslint-plugin-react": "^7.37.5",
+    "globals": "^16.3.0",
+    "postcss": "^8.4.24",
+    "tailwindcss": "^3.3.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.39.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

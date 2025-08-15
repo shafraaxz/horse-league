@@ -1,0 +1,276 @@
+/* styles/globals.css - Main CSS file with color palette */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== COLOR PALETTE VARIABLES ===== */
+:root {
+  /* Primary Colors */
+  --primary: #4285F4;
+  --primary-dark: #1a73e8;
+  --primary-light: #6ba1f7;
+  
+  /* Secondary Colors */
+  --secondary: #1f2c56;
+  --accent: #4285F4;
+  
+  /* Status Colors */
+  --danger: #ff4757;
+  --warning: #ffd93d;
+  --success: #26de81;
+  --live: #ff0000;
+  
+  /* Text Colors */
+  --text: #ffffff;
+  --text-secondary: #b8bcc8;
+  --text-muted: #6b7280;
+  
+  /* Background Colors */
+  --bg-dark: #0a0e1a;
+  --bg-card: #141b2d;
+  --bg-overlay: rgba(0, 0, 0, 0.8);
+  
+  /* Border & Divider Colors */
+  --border: #2a3441;
+  --border-light: #374151;
+  
+  /* Interactive States */
+  --hover: rgba(66, 133, 244, 0.1);
+  --active: rgba(66, 133, 244, 0.2);
+  --focus: rgba(66, 133, 244, 0.3);
+  
+  /* Gradient Stops */
+  --gradient-start: #0a0e1a;
+  --gradient-end: #1f2c56;
+  
+  /* Horse Futsal League Specific */
+  --manadhoo-highlight: #fbbf24;
+  --champion-gold: #ffd700;
+  --silver-medal: #c0c0c0;
+  --bronze-medal: #cd7f32;
+}
+
+/* Dark mode variables (if implementing dark/light theme toggle) */
+[data-theme="light"] {
+  --primary: #4285F4;
+  --bg-dark: #ffffff;
+  --bg-card: #f8fafc;
+  --text: #1f2937;
+  --text-secondary: #6b7280;
+  --border: #e5e7eb;
+}
+
+/* ===== BASE STYLES ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== UTILITY CLASSES USING COLOR VARIABLES ===== */
+
+/* Background utilities */
+.bg-primary { background-color: var(--primary); }
+.bg-primary-dark { background-color: var(--primary-dark); }
+.bg-secondary { background-color: var(--secondary); }
+.bg-danger { background-color: var(--danger); }
+.bg-warning { background-color: var(--warning); }
+.bg-success { background-color: var(--success); }
+.bg-live { background-color: var(--live); }
+.bg-card { background-color: var(--bg-card); }
+.bg-dark { background-color: var(--bg-dark); }
+
+/* Text color utilities */
+.text-primary { color: var(--primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-danger { color: var(--danger); }
+.text-warning { color: var(--warning); }
+.text-success { color: var(--success); }
+.text-live { color: var(--live); }
+.text-muted { color: var(--text-muted); }
+
+/* Border utilities */
+.border-primary { border-color: var(--primary); }
+.border-danger { border-color: var(--danger); }
+.border-default { border-color: var(--border); }
+
+/* Gradient utilities */
+.gradient-bg {
+  background: linear-gradient(135deg, var(--gradient-start) 0%, var(--gradient-end) 100%);
+}
+
+.gradient-primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+}
+
+.gradient-live {
+  background: linear-gradient(135deg, var(--live) 0%, #dc2626 100%);
+}
+
+/* ===== COMPONENT-SPECIFIC STYLES ===== */
+
+/* Live match indicator */
+.live-indicator {
+  background: var(--live);
+  color: white;
+  animation: pulse 2s infinite;
+}
+
+/* Status badges */
+.status-scheduled { 
+  background-color: var(--primary);
+  color: white;
+}
+
+.status-live { 
+  background-color: var(--live);
+  color: white;
+  animation: pulse 2s infinite;
+}
+
+.status-finished { 
+  background-color: var(--success);
+  color: white;
+}
+
+.status-postponed { 
+  background-color: var(--warning);
+  color: var(--bg-dark);
+}
+
+/* Position badges */
+.position-gk { background-color: var(--warning); }
+.position-def { background-color: var(--primary); }
+.position-mid { background-color: var(--success); }
+.position-fw { background-color: var(--danger); }
+
+/* Medal colors */
+.medal-gold { color: var(--champion-gold); }
+.medal-silver { color: var(--silver-medal); }
+.medal-bronze { color: var(--bronze-medal); }
+
+/* Manadhoo special highlight */
+.manadhoo-highlight {
+  background-color: rgba(251, 191, 36, 0.2);
+  border: 1px solid var(--manadhoo-highlight);
+  color: var(--manadhoo-highlight);
+}
+
+/* ===== ANIMATIONS ===== */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+/* Apply animations */
+.animate-fade-in { animation: fadeIn 0.5s ease-in-out; }
+.animate-slide-in { animation: slideIn 0.3s ease-out; }
+.animate-bounce-gentle { animation: bounce 2s infinite; }
+
+/* ===== RESPONSIVE DESIGN ===== */
+
+/* Mobile-first approach */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+  
+  .mobile-text-sm {
+    font-size: 0.875rem;
+  }
+  
+  .mobile-p-4 {
+    padding: 1rem;
+  }
+}
+
+/* Tablet */
+@media (min-width: 768px) and (max-width: 1024px) {
+  body {
+    font-size: 15px;
+  }
+}
+
+/* Desktop */
+@media (min-width: 1024px) {
+  body {
+    font-size: 16px;
+  }
+}
+
+/* ===== CUSTOM SCROLLBAR ===== */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-dark);
+}
+
+/* ===== FOCUS STATES FOR ACCESSIBILITY ===== */
+button:focus,
+input:focus,
+select:focus,
+textarea:focus,
+a:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ===== PRINT STYLES ===== */
+@media print {
+  :root {
+    --text: #000000;
+    --bg-card: #ffffff;
+    --bg-dark: #ffffff;
+    --border: #000000;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+}
