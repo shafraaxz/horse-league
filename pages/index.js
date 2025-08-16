@@ -1,4 +1,4 @@
-// pages/index.js - FIXED VERSION with proper modal data passing
+// pages/index.js - Production Clean Version
 import { useState, useEffect, useCallback } from 'react';
 import Layout from '../components/Layout';
 import Dashboard from '../components/Dashboard';
@@ -7,7 +7,7 @@ import LeagueTable from '../components/LeagueTable';
 import Teams from '../components/Teams';
 import Statistics from '../components/Statistics';
 
-// Import admin components
+// Admin components
 import AdminLogin from '../components/AdminLogin';
 import LeagueModal from '../components/admin/LeagueModal';
 import TeamModal from '../components/admin/TeamModal';
@@ -15,7 +15,7 @@ import PlayerModal from '../components/admin/PlayerModal';
 import MatchModal from '../components/admin/MatchModal';
 import ScheduleGenerator from '../components/ScheduleGenerator';
 
-import { X, Key, Shield, UserPlus, Settings, Save, Eye, EyeOff, AlertCircle, CheckCircle, Edit, Trash2, Plus, Calendar, MapPin } from 'lucide-react';
+import { X } from 'lucide-react';
 
 const API_BASE = '/api';
 
@@ -68,15 +68,13 @@ export default function Home() {
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [isLoginLoading, setIsLoginLoading] = useState(false);
 
-  // ✅ FIXED: Enhanced Modal State Management
+  // Modal State
   const [modals, setModals] = useState({
     league: { open: false, data: null },
     team: { open: false, data: null },
     player: { open: false, data: null },
     match: { open: false, data: null },
-    schedule: { open: false, data: null },
-    admin: { open: false, data: null },
-    passwordChange: { open: false, data: null }
+    schedule: { open: false, data: null }
   });
 
   // Navigation items
@@ -86,13 +84,11 @@ export default function Home() {
     { id: 'table', label: 'League Table', icon: '📊', requiresLeague: true },
     { id: 'teams', label: 'Teams', icon: '👥', requiresLeague: true },
     { id: 'statistics', label: 'Statistics', icon: '📈', requiresLeague: true },
-    { id: 'live', label: 'Live', icon: '🔴', requiresLeague: true, requiresLive: true },
-    { id: 'admin', label: 'Admin Users', icon: '🛡️', requiresAuth: true }
+    { id: 'live', label: 'Live', icon: '🔴', requiresLeague: true, requiresLive: true }
   ];
 
   // Show toast function
   const showToast = useCallback((message, type = 'success') => {
-    console.log(`📢 Toast: [${type.toUpperCase()}] ${message}`);
     setToast({ message, type });
   }, []);
 
@@ -106,41 +102,31 @@ export default function Home() {
         headers.Authorization = `Bearer ${token}`;
       }
 
-      console.log(`🌐 API Call: ${options.method || 'GET'} ${API_BASE}${endpoint}`);
-
       const response = await fetch(`${API_BASE}${endpoint}`, {
         headers,
         ...options
       });
 
       if (response.status === 401) {
-        console.log('🔒 Authentication failed');
         handleLogout();
         return null;
       }
       
       if (response.ok) {
         const data = await response.json();
-        console.log(`✅ API Success: ${endpoint}`, data);
         return data;
       } else {
         const error = await response.json();
-        console.error(`❌ API Error: ${endpoint}`, error);
         throw new Error(error.error || 'API call failed');
       }
     } catch (error) {
-      console.error(`💥 API Error for ${endpoint}:`, error);
       throw error;
     }
   }, []);
 
-  // ✅ FIXED: Enhanced Modal Management
+  // Modal Management
   const openModal = useCallback((type, data = null) => {
-    console.log(`🔧 Opening ${type} modal with data:`, data);
-    
-    // Create a deep copy of the data to prevent reference issues
     const modalData = data ? JSON.parse(JSON.stringify(data)) : null;
-    
     setModals(prev => ({
       ...prev,
       [type]: { 
@@ -148,19 +134,16 @@ export default function Home() {
         data: modalData 
       }
     }));
-    
-    console.log(`✅ Modal ${type} opened with data:`, modalData);
   }, []);
 
   const closeModal = useCallback((type) => {
-    console.log(`🔧 Closing ${type} modal`);
     setModals(prev => ({
       ...prev,
       [type]: { open: false, data: null }
     }));
   }, []);
 
-  // ✅ FIXED: Enhanced Team Management Handlers
+  // Team Management
   const handleCreateTeam = useCallback(() => {
     if (!isLoggedIn) {
       showToast('Please login to create teams', 'warning');
@@ -172,8 +155,7 @@ export default function Home() {
       return;
     }
     
-    console.log('✅ Creating new team for league:', selectedLeague);
-    openModal('team', null); // null for create mode
+    openModal('team', null);
   }, [isLoggedIn, selectedLeague, openModal, showToast]);
 
   const handleEditTeam = useCallback((team) => {
@@ -187,8 +169,7 @@ export default function Home() {
       return;
     }
     
-    console.log('✅ Editing team:', team);
-    openModal('team', team); // Pass team data for edit mode
+    openModal('team', team);
   }, [isLoggedIn, openModal, showToast]);
 
   const handleDeleteTeam = useCallback(async (teamId) => {
@@ -202,17 +183,15 @@ export default function Home() {
     }
 
     try {
-      console.log('🗑️ Deleting team:', teamId);
       await apiCall(`/teams?id=${teamId}`, { method: 'DELETE' });
       await loadLeagueData(selectedLeague);
       showToast('Team deleted successfully');
     } catch (error) {
-      console.error('Delete team error:', error);
       showToast('Failed to delete team: ' + error.message, 'error');
     }
   }, [isLoggedIn, selectedLeague, apiCall, showToast]);
 
-  // ✅ FIXED: Enhanced Player Management
+  // Player Management
   const handleCreatePlayer = useCallback(async (playerData) => {
     if (!isLoggedIn) {
       showToast('Please login to create players', 'warning');
@@ -220,16 +199,13 @@ export default function Home() {
     }
 
     try {
-      console.log('✅ Creating player:', playerData);
-      
-      // ✅ FIXED: Correct API payload structure
       const payload = {
         name: playerData.name,
         number: parseInt(playerData.number),
         position: playerData.position,
         photo: playerData.photo || '',
-        team: playerData.teamId || playerData.team, // API expects 'team'
-        league: selectedLeague, // API expects 'league'
+        team: playerData.teamId || playerData.team,
+        league: selectedLeague,
         age: playerData.age ? parseInt(playerData.age) : null,
         nationality: playerData.nationality || '',
         height: playerData.height ? parseInt(playerData.height) : null,
@@ -244,8 +220,6 @@ export default function Home() {
         }
       };
 
-      console.log('📤 Player API payload:', payload);
-
       await apiCall('/players', {
         method: 'POST',
         body: JSON.stringify(payload)
@@ -254,7 +228,6 @@ export default function Home() {
       await loadLeagueData(selectedLeague);
       showToast('Player created successfully');
     } catch (error) {
-      console.error('Failed to create player:', error);
       showToast('Failed to create player: ' + error.message, 'error');
       throw error;
     }
@@ -266,7 +239,6 @@ export default function Home() {
       return;
     }
     
-    console.log('✅ Editing player:', player);
     openModal('player', player);
   }, [isLoggedIn, openModal, showToast]);
 
@@ -287,11 +259,10 @@ export default function Home() {
     }
   }, [isLoggedIn, selectedLeague, apiCall, showToast]);
 
-  // ✅ FIXED: Enhanced Save Handlers
+  // Save Handlers
   const handleSaveLeague = useCallback(async (formData) => {
     try {
       setIsLoading(true);
-      console.log('💾 Saving league:', formData);
       
       const method = formData._id ? 'PUT' : 'POST';
       const payload = formData._id ? 
@@ -307,7 +278,6 @@ export default function Home() {
       closeModal('league');
       showToast(formData._id ? 'League updated!' : 'League created!');
     } catch (error) {
-      console.error('Save league error:', error);
       showToast('Failed to save league: ' + error.message, 'error');
     } finally {
       setIsLoading(false);
@@ -317,11 +287,9 @@ export default function Home() {
   const handleSaveTeam = useCallback(async (formData) => {
     try {
       setIsLoading(true);
-      console.log('💾 Saving team:', formData);
       
       const method = formData._id ? 'PUT' : 'POST';
       
-      // ✅ FIXED: Proper team payload structure
       const payload = {
         name: formData.name,
         coach: formData.coach || '',
@@ -344,8 +312,6 @@ export default function Home() {
         payload.leagueId = selectedLeague;
       }
 
-      console.log('📤 Team API payload:', payload);
-
       await apiCall('/teams', {
         method,
         body: JSON.stringify(payload)
@@ -355,7 +321,6 @@ export default function Home() {
       closeModal('team');
       showToast(formData._id ? 'Team updated!' : 'Team created!');
     } catch (error) {
-      console.error('Save team error:', error);
       showToast('Failed to save team: ' + error.message, 'error');
     } finally {
       setIsLoading(false);
@@ -365,11 +330,9 @@ export default function Home() {
   const handleSavePlayer = useCallback(async (formData) => {
     try {
       setIsLoading(true);
-      console.log('💾 Saving player:', formData);
       
       const method = formData._id ? 'PUT' : 'POST';
       
-      // ✅ FIXED: Proper player payload structure
       const payload = {
         name: formData.name,
         number: parseInt(formData.number),
@@ -395,8 +358,6 @@ export default function Home() {
         payload.id = formData._id;
       }
 
-      console.log('📤 Player API payload:', payload);
-
       await apiCall('/players', {
         method,
         body: JSON.stringify(payload)
@@ -406,7 +367,6 @@ export default function Home() {
       closeModal('player');
       showToast(formData._id ? 'Player updated!' : 'Player created!');
     } catch (error) {
-      console.error('Save player error:', error);
       showToast('Failed to save player: ' + error.message, 'error');
     } finally {
       setIsLoading(false);
@@ -416,7 +376,6 @@ export default function Home() {
   const handleSaveMatch = useCallback(async (formData) => {
     try {
       setIsLoading(true);
-      console.log('💾 Saving match:', formData);
       
       const method = formData._id ? 'PUT' : 'POST';
       
@@ -453,14 +412,13 @@ export default function Home() {
       closeModal('match');
       showToast(formData._id ? 'Match updated!' : 'Match created!');
     } catch (error) {
-      console.error('Save match error:', error);
       showToast('Failed to save match: ' + error.message, 'error');
     } finally {
       setIsLoading(false);
     }
   }, [selectedLeague, apiCall, closeModal, showToast]);
 
-  // Admin Login Function
+  // Admin Login
   const handleLogin = async (credentials) => {
     setIsLoginLoading(true);
     
@@ -506,8 +464,6 @@ export default function Home() {
     if (!silent) setIsLoading(true);
     
     try {
-      console.log(`📄 Loading league data for: ${leagueId}`);
-      
       const [summary, matches, teams, players] = await Promise.all([
         apiCall(`/leagues/${leagueId}/summary`),
         apiCall(`/matches?league=${leagueId}`),
@@ -522,7 +478,6 @@ export default function Home() {
           players: players || [],
           matches: matches || [],
           liveMatches: summary.liveMatches || [],
-          admins: [],
           statistics: {
             totalTeams: teams?.length || 0,
             totalMatches: matches?.length || 0,
@@ -534,10 +489,8 @@ export default function Home() {
         };
 
         setLeagueData(leagueDataObj);
-        console.log(`✅ League data loaded: ${matches?.length || 0} matches, ${teams?.length || 0} teams, ${players?.length || 0} players`);
       }
     } catch (error) {
-      console.error('Failed to load league data:', error);
       if (!silent) showToast('Failed to load league data', 'error');
     } finally {
       if (!silent) setIsLoading(false);
@@ -554,7 +507,6 @@ export default function Home() {
       }
       return [];
     } catch (error) {
-      console.error('Failed to load leagues:', error);
       return [];
     }
   }, [apiCall]);
@@ -567,10 +519,10 @@ export default function Home() {
         closeModal('schedule');
         
         if (result.cleared) {
-          showToast(`🗑️ Cleared ${result.matchesDeleted || 0} matches!`, 'success');
+          showToast(`Cleared ${result.matchesDeleted || 0} matches!`, 'success');
         } else {
           const matchCount = result.matchesCreated || result.data?.matchesCreated || 0;
-          showToast(`✅ Generated ${matchCount} matches successfully!`, 'success');
+          showToast(`Generated ${matchCount} matches successfully!`, 'success');
         }
       } else {
         showToast('Failed to generate schedule', 'error');
@@ -580,7 +532,7 @@ export default function Home() {
     }
   }, [selectedLeague, loadLeagueData, closeModal, showToast]);
 
-  // Admin actions for matches
+  // Match actions
   const handleEditMatch = useCallback((match) => {
     if (!isLoggedIn) {
       showToast('Please login to edit matches', 'warning');
@@ -678,7 +630,7 @@ export default function Home() {
     };
 
     initializeApp();
-  }, []); // Empty dependency array
+  }, []);
 
   // Auto-refresh live matches
   useEffect(() => {
@@ -812,7 +764,7 @@ export default function Home() {
         {renderCurrentSection()}
       </Layout>
 
-      {/* ✅ FIXED: Modals with proper data passing */}
+      {/* Modals */}
       <AdminLogin
         isOpen={showAdminLogin}
         onClose={() => setShowAdminLogin(false)}
