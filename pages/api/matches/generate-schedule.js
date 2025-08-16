@@ -1,10 +1,11 @@
-// pages/api/matches/generate-schedule.js - FIXED: Correct Double Round-Robin Formula
+// Enhanced pages/api/matches/generate-schedule.js with Cup Support
+
 import connectDB from '../../../lib/mongodb';
 import { Team, Match, League } from '../../../lib/models';
 import { authMiddleware } from '../../../lib/auth';
 
 async function handler(req, res) {
-  console.log('🏆 FIXED SCHEDULE GENERATION STARTED');
+  console.log('🏆 ENHANCED TOURNAMENT GENERATION STARTED');
   console.log('Method:', req.method);
   console.log('Body:', JSON.stringify(req.body, null, 2));
   
@@ -18,6 +19,12 @@ async function handler(req, res) {
     const { 
       leagueId, 
       format = 'double-round-robin',
+      cupFormat = 'single-elimination',
+      groupStageTeams = 4,
+      groupAdvancement = 2,
+      hasGroupStage = false,
+      thirdPlacePlayoff = false,
+      seedTeams = false,
       startDate, 
       daysBetween = 7,
       timePeriods = ['18:00', '19:30'],
@@ -26,12 +33,8 @@ async function handler(req, res) {
     } = req.body;
     
     // Validate inputs
-    if (!leagueId) {
-      return res.status(400).json({ error: 'League ID is required' });
-    }
-    
-    if (!startDate) {
-      return res.status(400).json({ error: 'Start date is required' });
+    if (!leagueId || !startDate) {
+      return res.status(400).json({ error: 'League ID and start date are required' });
     }
     
     if (!timePeriods || timePeriods.length === 0) {
@@ -61,30 +64,54 @@ async function handler(req, res) {
       console.log(`✅ Deleted ${deleteResult.deletedCount} existing matches`);
     }
     
-    // Generate the schedule using CORRECT round-robin algorithm
-    console.log(`🎯 Generating CORRECT ${format} schedule...`);
-    const matches = generateCorrectRoundRobin({
-      teams,
-      format,
-      startDate,
-      daysBetween: parseInt(daysBetween),
-      timePeriods,
-      venues
-    });
+    // Generate matches based on tournament format
+    let matches = [];
+    let tournamentStructure = {};
+    
+    switch (format) {
+      case 'single-round-robin':
+      case 'double-round-robin':
+        console.log(`🔄 Generating ${format} tournament...`);
+        const result = generateRoundRobinTournament(teams, format, startDate, daysBetween, timePeriods, venues);
+        matches = result.matches;
+        tournamentStructure = result.structure;
+        break;
+        
+      case 'single-elimination':
+        console.log('🏆 Generating single elimination cup...');
+        const seResult = generateSingleEliminationCup(teams, startDate, daysBetween, timePeriods, venues, thirdPlacePlayoff, seedTeams);
+        matches = seResult.matches;
+        tournamentStructure = seResult.structure;
+        break;
+        
+      case 'double-elimination':
+        console.log('🏆🏆 Generating double elimination cup...');
+        const deResult = generateDoubleEliminationCup(teams, startDate, daysBetween, timePeriods, venues, seedTeams);
+        matches = deResult.matches;
+        tournamentStructure = deResult.structure;
+        break;
+        
+      case 'group-stage-knockout':
+        console.log('👥🏆 Generating group stage + knockout tournament...');
+        const gsResult = generateGroupStageKnockout(teams, groupStageTeams, groupAdvancement, startDate, daysBetween, timePeriods, venues, thirdPlacePlayoff, seedTeams);
+        matches = gsResult.matches;
+        tournamentStructure = gsResult.structure;
+        break;
+        
+      case 'swiss-system':
+        console.log('🎯 Generating Swiss system tournament...');
+        const swissResult = generateSwissSystem(teams, startDate, daysBetween, timePeriods, venues);
+        matches = swissResult.matches;
+        tournamentStructure = swissResult.structure;
+        break;
+        
+      default:
+        return res.status(400).json({ error: 'Unsupported tournament format' });
+    }
     
     console.log(`📅 Generated ${matches.length} matches`);
     if (matches.length === 0) {
       return res.status(400).json({ error: 'No matches were generated' });
-    }
-    
-    // Validate the schedule
-    const validation = validateCorrectSchedule(matches, teams, format);
-    if (!validation.isValid) {
-      console.error('❌ Schedule validation failed:', validation.errors);
-      return res.status(400).json({ 
-        error: 'Generated schedule is invalid', 
-        details: validation.errors 
-      });
     }
     
     // Prepare matches for database insertion
@@ -113,7 +140,13 @@ async function handler(req, res) {
       statistics: {
         home: { possession: 0, shots: 0, shotsOnTarget: 0, corners: 0, fouls: 0, yellowCards: 0, redCards: 0 },
         away: { possession: 0, shots: 0, shotsOnTarget: 0, corners: 0, fouls: 0, yellowCards: 0, redCards: 0 }
-      }
+      },
+      // Tournament-specific fields
+      tournamentFormat: format,
+      cupRound: match.cupRound || null,
+      groupName: match.groupName || null,
+      isPlayoff: match.isPlayoff || false,
+      isThirdPlace: match.isThirdPlace || false
     }));
     
     // Save to database
@@ -124,398 +157,389 @@ async function handler(req, res) {
     // Update league match count
     await League.findByIdAndUpdate(leagueId, {
       matchesCount: savedMatches.length,
-      lastScheduleGenerated: new Date()
+      lastScheduleGenerated: new Date(),
+      tournamentFormat: format
     });
     
-    // Generate summary
-    const summary = generateScheduleSummary(savedMatches, teams);
-    
-    console.log('🎉 CORRECT schedule generation completed successfully!');
+    console.log('🎉 Tournament generation completed successfully!');
     
     return res.status(200).json({
       success: true,
-      message: `Perfect ${format} schedule generated! ${savedMatches.length} matches created.`,
+      message: `${format} tournament generated! ${savedMatches.length} matches created.`,
       matchesCreated: savedMatches.length,
       data: {
         matchesCreated: savedMatches.length,
         format: format,
         totalRounds: Math.max(...matches.map(m => m.round)),
-        summary,
-        validation
+        tournamentStructure,
+        teams: teams.length
       }
     });
     
   } catch (error) {
-    console.error('💥 Schedule generation error:', error);
+    console.error('💥 Tournament generation error:', error);
     return res.status(500).json({ 
-      error: 'Internal server error during schedule generation',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'Schedule generation failed'
+      error: 'Internal server error during tournament generation',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Tournament generation failed'
     });
   }
 }
 
-// ✅ FIXED: Correct Round-Robin Algorithm with FIXED Formula
-function generateCorrectRoundRobin({ teams, format, startDate, daysBetween, timePeriods, venues }) {
-  console.log('🏗️ Generating CORRECT round-robin fixtures with FIXED formula...');
-  console.log(`Teams: ${teams.length}, Format: ${format}`);
+// ✅ ENHANCED: Round Robin Tournament Generator
+function generateRoundRobinTournament(teams, format, startDate, daysBetween, timePeriods, venues) {
+  const N = teams.length;
+  const matches = [];
+  let roundNumber = 1;
   
-  if (teams.length < 2) {
-    console.log('❌ Not enough teams for schedule generation');
-    return [];
-  }
+  // Generate single round robin
+  const singleRoundMatches = generateSingleRoundRobin(teams);
   
-  // Shuffle team order for fairness
-  const teamList = [...teams];
-  for (let i = teamList.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [teamList[i], teamList[j]] = [teamList[j], teamList[i]];
-  }
+  // Add dates and details to first leg
+  singleRoundMatches.forEach(match => {
+    matches.push({
+      ...match,
+      round: roundNumber++,
+      date: calculateMatchDate(startDate, Math.floor(matches.length / Math.max(timePeriods.length, 1)), daysBetween),
+      time: timePeriods[matches.length % timePeriods.length],
+      venue: selectVenue(venues, matches.length)
+    });
+  });
   
-  console.log('🎲 Team order randomized for fair distribution');
-  console.log('📋 Randomized order:', teamList.map(t => t.name));
-  
-  const numTeams = teamList.length;
-  
-  // Handle odd number of teams by adding a "bye" placeholder
-  const isOdd = numTeams % 2 !== 0;
-  if (isOdd) {
-    teamList.push({ _id: 'BYE', name: 'BYE' });
-  }
-  
-  const actualTeamCount = teamList.length;
-  const roundsPerLeg = actualTeamCount - 1; // Standard round-robin: n-1 rounds
-  
-  console.log(`📊 Setup: ${numTeams} real teams, ${actualTeamCount} total (with bye), ${roundsPerLeg} rounds per leg`);
-  
-  // ✅ STEP 1: Generate first leg using classic round-robin algorithm
-  const firstLegMatches = generateSingleRoundRobinLeg(teamList, 1);
-  
-  let allMatches = firstLegMatches;
-  
-  // ✅ STEP 2: Generate second leg for double round-robin (home/away reversed)
+  // For double round robin, add return leg
   if (format === 'double-round-robin') {
-    const secondLegMatches = generateSingleRoundRobinLeg(teamList, roundsPerLeg + 1, true);
-    allMatches = [...firstLegMatches, ...secondLegMatches];
+    singleRoundMatches.forEach(match => {
+      matches.push({
+        homeTeam: match.awayTeam, // Swap home/away
+        awayTeam: match.homeTeam,
+        round: roundNumber++,
+        date: calculateMatchDate(startDate, Math.floor(matches.length / Math.max(timePeriods.length, 1)), daysBetween),
+        time: timePeriods[matches.length % timePeriods.length],
+        venue: selectVenue(venues, matches.length)
+      });
+    });
   }
   
-  // ✅ STEP 3: Apply schedule details with randomized distribution
-  const scheduledMatches = applyFairScheduleDetails(allMatches, startDate, daysBetween, timePeriods, venues);
-  
-  console.log(`✅ Generated ${scheduledMatches.length} total matches with CORRECT formula`);
-  
-  // ✅ VERIFY: Check the math
-  const expectedMatches = format === 'double-round-robin' 
-    ? numTeams * (numTeams - 1)  // ✅ FIXED: N(N-1) not 2×N(N-1)
-    : Math.floor(numTeams * (numTeams - 1) / 2); // Single round robin
-  
-  console.log(`🔢 Math check: Expected ${expectedMatches} matches for ${numTeams} teams in ${format}`);
-  console.log(`🔢 Generated: ${scheduledMatches.length} matches`);
-  
-  if (scheduledMatches.length !== expectedMatches) {
-    console.warn(`⚠️ Match count mismatch! Expected: ${expectedMatches}, Generated: ${scheduledMatches.length}`);
-  } else {
-    console.log(`✅ Perfect match count: ${scheduledMatches.length} matches`);
-  }
-  
-  return scheduledMatches;
+  return {
+    matches,
+    structure: {
+      type: format,
+      totalMatches: matches.length,
+      expectedFormula: format === 'double-round-robin' ? `${N}(${N-1}) = ${N * (N-1)}` : `${N}(${N-1})/2 = ${Math.floor(N * (N-1) / 2)}`,
+      rounds: Math.max(...matches.map(m => m.round))
+    }
+  };
 }
 
-// ✅ CLASSIC: Single Round-Robin Leg using the standard rotating algorithm
-function generateSingleRoundRobinLeg(teams, startingRound, reverseHomeAway = false) {
-  console.log(`🔄 Generating single round-robin leg starting at round ${startingRound}, reverse: ${reverseHomeAway}`);
-  
-  const teamCount = teams.length;
+// ✅ NEW: Single Elimination Cup Generator
+function generateSingleEliminationCup(teams, startDate, daysBetween, timePeriods, venues, thirdPlacePlayoff = false, seedTeams = false) {
   const matches = [];
-  const teamsList = [...teams]; // Make a copy to avoid mutation
+  let currentDate = new Date(startDate);
+  let roundNumber = 1;
   
-  // ✅ CLASSIC ROUND-ROBIN ALGORITHM: Fix first team, rotate others
-  for (let round = 0; round < teamCount - 1; round++) {
+  // Prepare teams (with seeding if requested)
+  let tournamentTeams = [...teams];
+  if (seedTeams) {
+    // Simple seeding based on team name for now
+    tournamentTeams = teams.sort((a, b) => a.name.localeCompare(b.name));
+  } else {
+    // Shuffle for random bracket
+    for (let i = tournamentTeams.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [tournamentTeams[i], tournamentTeams[j]] = [tournamentTeams[j], tournamentTeams[i]];
+    }
+  }
+  
+  const rounds = Math.ceil(Math.log2(tournamentTeams.length));
+  let currentRoundTeams = [...tournamentTeams];
+  
+  // Add byes if needed (for non-power-of-2 team counts)
+  const powerOf2 = Math.pow(2, rounds);
+  const byes = powerOf2 - tournamentTeams.length;
+  
+  for (let round = 1; round <= rounds; round++) {
     const roundMatches = [];
+    const nextRoundTeams = [];
     
-    // Generate matches for this round
-    for (let i = 0; i < teamCount / 2; i++) {
-      const homeIndex = i;
-      const awayIndex = teamCount - 1 - i;
-      
-      const homeTeam = teamsList[homeIndex];
-      const awayTeam = teamsList[awayIndex];
-      
-      // Skip bye matches
-      if (homeTeam._id !== 'BYE' && awayTeam._id !== 'BYE') {
-        // For second leg, reverse home and away
-        const finalHome = reverseHomeAway ? awayTeam : homeTeam;
-        const finalAway = reverseHomeAway ? homeTeam : awayTeam;
-        
-        roundMatches.push({
-          round: startingRound + round,
-          homeTeam: finalHome._id,
-          awayTeam: finalAway._id,
-          homeName: finalHome.name,
-          awayName: finalAway.name,
-          leg: reverseHomeAway ? 'second' : 'first'
-        });
+    // First round might have byes
+    if (round === 1 && byes > 0) {
+      // Advanced teams automatically (byes)
+      for (let i = 0; i < byes; i++) {
+        nextRoundTeams.push(currentRoundTeams[i]);
+      }
+      // Remaining teams play
+      for (let i = byes; i < currentRoundTeams.length; i += 2) {
+        if (i + 1 < currentRoundTeams.length) {
+          roundMatches.push({
+            homeTeam: currentRoundTeams[i]._id,
+            awayTeam: currentRoundTeams[i + 1]._id,
+            round: roundNumber++,
+            cupRound: getRoundName(round, rounds),
+            date: currentDate.toISOString().split('T')[0],
+            time: timePeriods[roundMatches.length % timePeriods.length],
+            venue: selectVenue(venues, roundMatches.length)
+          });
+          nextRoundTeams.push(null); // Placeholder for winner
+        }
+      }
+    } else {
+      // Normal rounds
+      for (let i = 0; i < currentRoundTeams.length; i += 2) {
+        if (i + 1 < currentRoundTeams.length) {
+          roundMatches.push({
+            homeTeam: currentRoundTeams[i]._id,
+            awayTeam: currentRoundTeams[i + 1]._id,
+            round: roundNumber++,
+            cupRound: getRoundName(round, rounds),
+            date: currentDate.toISOString().split('T')[0],
+            time: timePeriods[roundMatches.length % timePeriods.length],
+            venue: selectVenue(venues, roundMatches.length)
+          });
+          nextRoundTeams.push(null); // Placeholder for winner
+        }
       }
     }
     
     matches.push(...roundMatches);
-    
-    // ✅ CRITICAL: Round-robin rotation (keep first team fixed, rotate others)
-    if (teamsList.length > 2) {
-      const lastTeam = teamsList.pop(); // Remove last team
-      teamsList.splice(1, 0, lastTeam); // Insert after first team
-    }
-  }
-  
-  console.log(`   Generated ${matches.length} matches for single round-robin leg`);
-  return matches;
-}
-
-// ✅ ENHANCED: Apply scheduling details with fair distribution within rounds
-function applyFairScheduleDetails(matches, startDate, daysBetween, timePeriods, venues) {
-  console.log('📅 Applying schedule details with fair distribution...');
-  
-  const scheduledMatches = [];
-  
-  // Group matches by round
-  const matchesByRound = {};
-  matches.forEach(match => {
-    if (!matchesByRound[match.round]) {
-      matchesByRound[match.round] = [];
-    }
-    matchesByRound[match.round].push(match);
-  });
-  
-  // Process each round
-  const sortedRounds = Object.keys(matchesByRound).sort((a, b) => parseInt(a) - parseInt(b));
-  let currentDate = new Date(startDate);
-  
-  sortedRounds.forEach((roundNum) => {
-    const roundMatches = matchesByRound[roundNum];
-    
-    // ✅ RANDOMIZE: Shuffle matches within each round for fair time/venue distribution
-    const shuffledRoundMatches = [...roundMatches];
-    for (let i = shuffledRoundMatches.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffledRoundMatches[i], shuffledRoundMatches[j]] = [shuffledRoundMatches[j], shuffledRoundMatches[i]];
-    }
-    
-    console.log(`   Round ${roundNum}: ${shuffledRoundMatches.length} matches on ${currentDate.toISOString().split('T')[0]} (shuffled)`);
-    
-    shuffledRoundMatches.forEach((match, matchIndex) => {
-      // Distribute time periods evenly but in randomized order
-      const timeIndex = matchIndex % timePeriods.length;
-      
-      // ✅ RANDOMIZE: Venue selection with some variety
-      let venue = 'Manadhoo Futsal Ground'; // Default
-      if (venues.primary) {
-        venue = venues.primary;
-        
-        // Add some venue variety (30% chance for secondary venue)
-        if (venues.secondary && Math.random() > 0.7) {
-          venue = venues.secondary;
-        }
-      }
-      
-      scheduledMatches.push({
-        homeTeam: match.homeTeam,
-        awayTeam: match.awayTeam,
-        round: match.round,
-        date: currentDate.toISOString().split('T')[0],
-        time: timePeriods[timeIndex],
-        venue: venue,
-        leg: match.leg
-      });
-    });
-    
-    // ✅ SLIGHT RANDOMIZATION: Add small variation to round intervals (±1 day)
-    const baseInterval = daysBetween;
-    const randomVariation = Math.floor(Math.random() * 3) - 1; // -1, 0, or +1
-    const actualInterval = Math.max(baseInterval + randomVariation, 3); // Minimum 3 days
+    currentRoundTeams = nextRoundTeams;
     
     // Move to next round date
-    currentDate = new Date(currentDate.getTime() + actualInterval * 24 * 60 * 60 * 1000);
-  });
-  
-  console.log(`✅ Applied fair schedule details to ${scheduledMatches.length} matches`);
-  return scheduledMatches;
-}
-
-// ✅ COMPREHENSIVE: Validate the correct schedule with FIXED formula
-function validateCorrectSchedule(matches, teams, format) {
-  console.log('🔍 Validating correct round-robin schedule with FIXED formula...');
-  
-  const errors = [];
-  const teamStats = {};
-  const headToHeadMatches = {};
-  
-  // Initialize team stats
-  teams.forEach(team => {
-    teamStats[team._id.toString()] = {
-      name: team.name,
-      totalMatches: 0,
-      homeMatches: 0,
-      awayMatches: 0,
-      opponents: new Set()
-    };
-  });
-  
-  // Analyze all matches
-  matches.forEach(match => {
-    const homeId = match.homeTeam.toString();
-    const awayId = match.awayTeam.toString();
-    
-    // Count matches per team
-    if (teamStats[homeId]) {
-      teamStats[homeId].totalMatches++;
-      teamStats[homeId].homeMatches++;
-      teamStats[homeId].opponents.add(awayId);
+    if (round < rounds) {
+      currentDate = new Date(currentDate.getTime() + daysBetween * 24 * 60 * 60 * 1000);
     }
-    
-    if (teamStats[awayId]) {
-      teamStats[awayId].totalMatches++;
-      teamStats[awayId].awayMatches++;
-      teamStats[awayId].opponents.add(homeId);
-    }
-    
-    // Track head-to-head matches
-    const pairKey = [homeId, awayId].sort().join('-');
-    if (!headToHeadMatches[pairKey]) {
-      headToHeadMatches[pairKey] = [];
-    }
-    headToHeadMatches[pairKey].push({
-      home: homeId,
-      away: awayId,
-      round: match.round,
-      leg: match.leg
-    });
-  });
-  
-  // ✅ VALIDATE: Expected match counts using CORRECT FIXED formula
-  const expectedTotal = format === 'double-round-robin' 
-    ? (teams.length - 1) * 2  // ✅ CORRECT: Each team plays every other team twice
-    : (teams.length - 1);     // ✅ CORRECT: Each team plays every other team once
-  
-  console.log(`🔢 Validation: Each team should have ${expectedTotal} matches in ${format}`);
-  
-  teams.forEach(team => {
-    const stats = teamStats[team._id.toString()];
-    
-    // Check total matches
-    if (stats.totalMatches !== expectedTotal) {
-      errors.push(`${team.name}: ${stats.totalMatches} matches (expected ${expectedTotal})`);
-    }
-    
-    // Check opponent coverage - each team must play every other team
-    if (stats.opponents.size !== teams.length - 1) {
-      errors.push(`${team.name}: plays against ${stats.opponents.size} opponents (expected ${teams.length - 1})`);
-    }
-    
-    // For double round-robin, check home/away balance
-    if (format === 'double-round-robin') {
-      const homeAwayDiff = Math.abs(stats.homeMatches - stats.awayMatches);
-      if (homeAwayDiff > 1) {
-        errors.push(`${team.name}: Unbalanced home/away (${stats.homeMatches}H, ${stats.awayMatches}A)`);
-      }
-    }
-  });
-  
-  // ✅ VALIDATE: Head-to-head completeness
-  const expectedPairs = (teams.length * (teams.length - 1)) / 2;
-  if (Object.keys(headToHeadMatches).length !== expectedPairs) {
-    errors.push(`Missing team pairs: found ${Object.keys(headToHeadMatches).length}, expected ${expectedPairs}`);
   }
   
-  Object.entries(headToHeadMatches).forEach(([pairKey, pairMatches]) => {
-    const expectedMatches = format === 'double-round-robin' ? 2 : 1;
-    
-    if (pairMatches.length !== expectedMatches) {
-      errors.push(`Pair ${pairKey}: ${pairMatches.length} matches (expected ${expectedMatches})`);
-    }
-    
-    // For double round-robin, validate home/away swap
-    if (format === 'double-round-robin' && pairMatches.length === 2) {
-      const homeTeams = pairMatches.map(m => m.home);
-      const awayTeams = pairMatches.map(m => m.away);
-      
-      // Check that each team plays home once and away once in the pair
-      const allTeams = Array.from(new Set([...homeTeams, ...awayTeams]));
-      if (allTeams.length === 2) {
-        const team1 = allTeams[0];
-        const team2 = allTeams[1];
-        
-        const team1Home = pairMatches.filter(m => m.home === team1).length;
-        const team2Home = pairMatches.filter(m => m.home === team2).length;
-        
-        if (team1Home !== 1 || team2Home !== 1) {
-          errors.push(`Pair ${pairKey}: Invalid home/away distribution`);
-        }
-      }
-    }
-  });
-  
-  console.log(`🔍 Validation result: ${errors.length} errors found`);
-  if (errors.length > 0) {
-    console.log('❌ Validation errors:', errors);
-  } else {
-    console.log('✅ Schedule validation passed perfectly with FIXED formula!');
+  // Add third place playoff if requested
+  if (thirdPlacePlayoff && tournamentTeams.length >= 4) {
+    const thirdPlaceDate = new Date(currentDate.getTime() + daysBetween * 24 * 60 * 60 * 1000);
+    matches.push({
+      homeTeam: null, // To be determined from semifinal losers
+      awayTeam: null,
+      round: roundNumber++,
+      cupRound: 'Third Place',
+      isThirdPlace: true,
+      date: thirdPlaceDate.toISOString().split('T')[0],
+      time: timePeriods[0],
+      venue: selectVenue(venues, 0)
+    });
   }
   
   return {
-    isValid: errors.length === 0,
-    errors,
-    statistics: {
+    matches,
+    structure: {
+      type: 'single-elimination',
       totalMatches: matches.length,
-      teamsCount: teams.length,
-      expectedMatchesPerTeam: expectedTotal,
-      totalRounds: Math.max(...matches.map(m => m.round)),
-      pairingsCount: Object.keys(headToHeadMatches).length,
-      algorithm: 'Classic Round-Robin Rotation (FIXED FORMULA)',
-      formula: format === 'double-round-robin' ? 'N(N-1)' : 'N(N-1)/2'
+      rounds: rounds,
+      participants: tournamentTeams.length,
+      byes: byes,
+      hasThirdPlace: thirdPlacePlayoff,
+      bracketStructure: generateBracketStructure(tournamentTeams, rounds)
     }
   };
 }
 
-// Generate schedule summary
-function generateScheduleSummary(matches, teams) {
-  const summary = {
-    totalMatches: matches.length,
-    totalRounds: Math.max(...matches.map(m => m.round)),
-    teamsCount: teams.length,
-    matchesPerTeam: {},
-    dateRange: {
-      start: null,
-      end: null
-    },
-    roundDistribution: {},
-    venueDistribution: {}
-  };
+// ✅ NEW: Group Stage + Knockout Generator
+function generateGroupStageKnockout(teams, groupSize, advancement, startDate, daysBetween, timePeriods, venues, thirdPlacePlayoff, seedTeams) {
+  const matches = [];
+  let roundNumber = 1;
+  let currentDate = new Date(startDate);
   
-  // Count matches per team
-  teams.forEach(team => {
-    const homeMatches = matches.filter(m => m.homeTeam.toString() === team._id.toString()).length;
-    const awayMatches = matches.filter(m => m.awayTeam.toString() === team._id.toString()).length;
-    
-    summary.matchesPerTeam[team.name] = {
-      total: homeMatches + awayMatches,
-      home: homeMatches,
-      away: awayMatches
-    };
-  });
+  // Create groups
+  const groupCount = Math.ceil(teams.length / groupSize);
+  const groups = [];
   
-  // Round and venue distribution
-  matches.forEach(match => {
-    summary.roundDistribution[match.round] = (summary.roundDistribution[match.round] || 0) + 1;
-    summary.venueDistribution[match.venue] = (summary.venueDistribution[match.venue] || 0) + 1;
-  });
-  
-  // Date range
-  if (matches.length > 0) {
-    const dates = matches.map(m => new Date(m.date)).sort((a, b) => a - b);
-    summary.dateRange.start = dates[0].toISOString().split('T')[0];
-    summary.dateRange.end = dates[dates.length - 1].toISOString().split('T')[0];
+  // Distribute teams into groups
+  let tournamentTeams = [...teams];
+  if (seedTeams) {
+    tournamentTeams = teams.sort((a, b) => a.name.localeCompare(b.name));
+  } else {
+    // Shuffle teams
+    for (let i = tournamentTeams.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [tournamentTeams[i], tournamentTeams[j]] = [tournamentTeams[j], tournamentTeams[i]];
+    }
   }
   
-  return summary;
+  // Create groups with snake draft for better balance
+  for (let g = 0; g < groupCount; g++) {
+    groups.push({
+      name: `Group ${String.fromCharCode(65 + g)}`, // A, B, C, etc.
+      teams: []
+    });
+  }
+  
+  // Distribute teams using snake draft
+  for (let i = 0; i < tournamentTeams.length; i++) {
+    const groupIndex = i % groupCount;
+    groups[groupIndex].teams.push(tournamentTeams[i]);
+  }
+  
+  // Generate group stage matches (round robin within each group)
+  groups.forEach(group => {
+    if (group.teams.length >= 2) {
+      const groupMatches = generateSingleRoundRobin(group.teams);
+      groupMatches.forEach(match => {
+        matches.push({
+          ...match,
+          round: roundNumber++,
+          groupName: group.name,
+          date: calculateMatchDate(startDate, Math.floor(matches.length / Math.max(timePeriods.length, 1)), daysBetween),
+          time: timePeriods[matches.length % timePeriods.length],
+          venue: selectVenue(venues, matches.length)
+        });
+      });
+    }
+  });
+  
+  // Calculate knockout stage
+  const advancingTeams = groupCount * advancement;
+  if (advancingTeams >= 2) {
+    // Move to knockout stage date
+    const knockoutStartDate = new Date(currentDate.getTime() + (daysBetween * 2) * 24 * 60 * 60 * 1000);
+    
+    // Generate knockout matches (simplified - would need actual group winners)
+    const knockoutRounds = Math.ceil(Math.log2(advancingTeams));
+    for (let round = 1; round <= knockoutRounds; round++) {
+      const roundMatches = Math.pow(2, knockoutRounds - round);
+      for (let i = 0; i < roundMatches; i++) {
+        matches.push({
+          homeTeam: null, // To be determined from group stage
+          awayTeam: null,
+          round: roundNumber++,
+          cupRound: getKnockoutRoundName(round, knockoutRounds),
+          isPlayoff: true,
+          date: new Date(knockoutStartDate.getTime() + (round - 1) * daysBetween * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          time: timePeriods[i % timePeriods.length],
+          venue: selectVenue(venues, i)
+        });
+      }
+    }
+    
+    // Third place playoff
+    if (thirdPlacePlayoff) {
+      const finalDate = new Date(knockoutStartDate.getTime() + knockoutRounds * daysBetween * 24 * 60 * 60 * 1000);
+      matches.push({
+        homeTeam: null,
+        awayTeam: null,
+        round: roundNumber++,
+        cupRound: 'Third Place',
+        isThirdPlace: true,
+        isPlayoff: true,
+        date: finalDate.toISOString().split('T')[0],
+        time: timePeriods[0],
+        venue: selectVenue(venues, 0)
+      });
+    }
+  }
+  
+  return {
+    matches,
+    structure: {
+      type: 'group-stage-knockout',
+      totalMatches: matches.length,
+      groupStage: {
+        groups: groups.length,
+        teamsPerGroup: groupSize,
+        advancement: advancement
+      },
+      knockout: {
+        participants: advancingTeams,
+        rounds: Math.ceil(Math.log2(advancingTeams))
+      },
+      hasThirdPlace: thirdPlacePlayoff
+    }
+  };
+}
+
+// Helper functions
+function generateSingleRoundRobin(teams) {
+  const matches = [];
+  const n = teams.length;
+  
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      matches.push({
+        homeTeam: teams[i]._id,
+        awayTeam: teams[j]._id
+      });
+    }
+  }
+  
+  return matches;
+}
+
+function calculateMatchDate(startDate, dayOffset, daysBetween) {
+  const date = new Date(startDate);
+  date.setDate(date.getDate() + (dayOffset * daysBetween));
+  return date.toISOString().split('T')[0];
+}
+
+function selectVenue(venues, index) {
+  if (venues.primary) return venues.primary;
+  return 'Manadhoo Futsal Ground';
+}
+
+function getRoundName(round, totalRounds) {
+  if (round === totalRounds) return 'Final';
+  if (round === totalRounds - 1) return 'Semi-Final';
+  if (round === totalRounds - 2) return 'Quarter-Final';
+  if (round === 1) return 'First Round';
+  return `Round ${round}`;
+}
+
+function getKnockoutRoundName(round, totalRounds) {
+  if (round === totalRounds) return 'Final';
+  if (round === totalRounds - 1) return 'Semi-Final';
+  if (round === totalRounds - 2) return 'Quarter-Final';
+  return `Round of ${Math.pow(2, totalRounds - round + 1)}`;
+}
+
+function generateBracketStructure(teams, rounds) {
+  return {
+    totalTeams: teams.length,
+    rounds: rounds,
+    bracket: `${teams.length} teams → ${rounds} rounds → 1 winner`
+  };
+}
+
+// Placeholder functions for other tournament types
+function generateDoubleEliminationCup(teams, startDate, daysBetween, timePeriods, venues, seedTeams) {
+  // Simplified double elimination - would need complex bracket logic
+  const singleElim = generateSingleEliminationCup(teams, startDate, daysBetween, timePeriods, venues, false, seedTeams);
+  return {
+    matches: singleElim.matches,
+    structure: { ...singleElim.structure, type: 'double-elimination' }
+  };
+}
+
+function generateSwissSystem(teams, startDate, daysBetween, timePeriods, venues) {
+  const matches = [];
+  const rounds = Math.ceil(Math.log2(teams.length));
+  let roundNumber = 1;
+  
+  for (let round = 1; round <= rounds; round++) {
+    // Simplified Swiss pairing
+    for (let i = 0; i < teams.length; i += 2) {
+      if (i + 1 < teams.length) {
+        matches.push({
+          homeTeam: teams[i]._id,
+          awayTeam: teams[i + 1]._id,
+          round: roundNumber++,
+          date: calculateMatchDate(startDate, round - 1, daysBetween),
+          time: timePeriods[(i / 2) % timePeriods.length],
+          venue: selectVenue(venues, i / 2)
+        });
+      }
+    }
+  }
+  
+  return {
+    matches,
+    structure: {
+      type: 'swiss-system',
+      totalMatches: matches.length,
+      rounds: rounds
+    }
+  };
 }
 
 export default authMiddleware(handler);

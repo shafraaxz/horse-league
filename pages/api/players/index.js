@@ -1,269 +1,123 @@
-// pages/api/players/index.js - FIXED to handle query parameters properly
-import mongoose from 'mongoose';
-import jwt from 'jsonwebtoken';
+// pages/api/players/index.js - QUICK FIX with simple auth
+import connectDB from '../../../lib/mongodb';
 import { Player, Team, League } from '../../../lib/models';
-
-const MONGODB_URI = process.env.MONGODB_URI;
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key';
-
-function verifyToken(token) {
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (error) {
-    return null;
-  }
-}
-
-async function connectDB() {
-  if (mongoose.connections[0].readyState) {
-    return;
-  }
-  
-  try {
-    await mongoose.connect(MONGODB_URI);
-    console.log('MongoDB connected for players');
-  } catch (error) {
-    console.error('MongoDB connection error:', error);
-    throw error;
-  }
-}
+import { authMiddleware } from '../../../lib/auth';
 
 export default async function handler(req, res) {
   try {
-    console.log(`🎯 Players API: ${req.method} request received`);
-    console.log('📝 Query params:', req.query);
-    console.log('📝 Request body:', req.body ? Object.keys(req.body) : 'none');
-    
     await connectDB();
 
     switch (req.method) {
       case 'GET':
-        return getPlayers(req, res);
+        return await getPlayers(req, res); // Public access
       case 'POST':
+        return await authMiddleware(createPlayer)(req, res); // Simple auth
       case 'PUT':
+        return await authMiddleware(updatePlayer)(req, res); // Simple auth
       case 'DELETE':
-        const token = req.headers.authorization?.replace('Bearer ', '');
-        if (!token) {
-          console.log('❌ No token provided');
-          return res.status(401).json({ error: 'No token provided' });
-        }
-
-        const decoded = verifyToken(token);
-        if (!decoded) {
-          console.log('❌ Invalid token');
-          return res.status(401).json({ error: 'Invalid token' });
-        }
-
-        console.log('✅ Authenticated user:', decoded.username);
-
-        if (req.method === 'POST') {
-          return createPlayer(req, res);
-        } else if (req.method === 'PUT') {
-          return updatePlayer(req, res);
-        } else if (req.method === 'DELETE') {
-          return deletePlayer(req, res);
-        }
-        break;
-
+        return await authMiddleware(deletePlayer)(req, res); // Simple auth
       default:
         return res.status(405).json({ error: 'Method not allowed' });
     }
   } catch (error) {
-    console.error('💥 Players API error:', error);
+    console.error('Players API error:', error);
     res.status(500).json({ 
       error: 'Internal server error',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'Server error'
+      details: error.message 
     });
   }
 }
 
+// GET players - Public access with league/team filtering
 async function getPlayers(req, res) {
   try {
-    const { 
-      teamId, 
-      leagueId, 
-      team,      // Alternative name for teamId
-      league,    // Alternative name for leagueId  
-      position,
-      search
-    } = req.query;
+    const { leagueId, league, teamId, team, position } = req.query;
     
-    // ✅ FIXED: Handle multiple query parameter formats
-    let filter = {};
+    let query = {};
     
-    // Team filter - support both 'team' and 'teamId' params
-    const teamFilter = teamId || team;
-    if (teamFilter) {
-      filter.team = teamFilter;
-      console.log('🔍 Filtering by team:', teamFilter);
-    }
-    
-    // League filter - support both 'league' and 'leagueId' params  
+    // Support both 'leagueId' and 'league' query parameters
     const leagueFilter = leagueId || league;
     if (leagueFilter) {
-      filter.league = leagueFilter;
-      console.log('🔍 Filtering by league:', leagueFilter);
+      query.league = leagueFilter;
+      console.log('🔍 Filtering players by league:', leagueFilter);
     }
     
-    // Position filter
+    // Support both 'teamId' and 'team' query parameters
+    const teamFilter = teamId || team;
+    if (teamFilter) {
+      query.team = teamFilter;
+      console.log('🔍 Filtering players by team:', teamFilter);
+    }
+    
     if (position) {
-      filter.position = position;
-      console.log('🔍 Filtering by position:', position);
-    }
-    
-    // Search filter
-    if (search) {
-      filter.name = { $regex: search, $options: 'i' };
-      console.log('🔍 Searching for:', search);
+      query.position = position;
     }
 
-    console.log('📋 Final players filter:', filter);
+    const players = await Player.find(query)
+      .populate('team', 'name logo league')
+      .populate('league', 'name season')
+      .sort({ team: 1, number: 1 });
 
-    const players = await Player.find(filter)
-      .populate('team', 'name logo')
-      .populate('league', 'name')
-      .sort({ number: 1, name: 1 });
-
-    console.log(`📊 Found ${players.length} players`);
-    
-    // ✅ Add debug info to response in development
-    const response = {
-      players,
-      ...(process.env.NODE_ENV === 'development' && {
-        debug: {
-          totalFound: players.length,
-          filter: filter,
-          queryParams: req.query
-        }
-      })
-    };
-    
-    res.status(200).json(players); // Return just players array for compatibility
+    console.log(`📋 Retrieved ${players.length} players${leagueFilter ? ` for league ${leagueFilter}` : ''}${teamFilter ? ` for team ${teamFilter}` : ''}`);
+    return res.status(200).json(players);
   } catch (error) {
-    console.error('Get players error:', error);
-    res.status(500).json({ error: 'Failed to fetch players' });
+    console.error('Error fetching players:', error);
+    return res.status(500).json({ error: 'Failed to fetch players' });
   }
 }
 
+// CREATE player - Simple auth
 async function createPlayer(req, res) {
   try {
-    console.log('🏗️ === CREATING PLAYER ===');
-    console.log('📥 Raw request body:', req.body);
-    
-    const {
-      name,
-      number,
-      position,
+    const { 
+      name, 
+      number, 
+      position, 
+      team: teamId, 
+      league: leagueId,
       photo,
-      team,        // Accept 'team'
-      teamId,      // Accept 'teamId'  
-      league,      // Accept 'league'
-      leagueId,    // Accept 'leagueId'
       dateOfBirth,
       nationality,
       height,
       weight,
       preferredFoot,
-      bio,
-      previousClubs
+      bio
     } = req.body;
 
-    // ✅ FIXED: Handle multiple field name formats
-    const finalTeamId = team || teamId;
-    const finalLeagueId = league || leagueId;
+    console.log('🏗️ Creating player:', name, 'for team:', teamId);
+    console.log('👤 User creating player:', req.user?.username, 'Role:', req.user?.role);
 
-    console.log('📋 Extracted fields:');
-    console.log('  - name:', name);
-    console.log('  - number:', number);
-    console.log('  - position:', position);
-    console.log('  - finalTeamId:', finalTeamId);
-    console.log('  - finalLeagueId:', finalLeagueId);
-    console.log('  - photo:', photo ? 'provided' : 'empty');
-
-    // Validate required fields
-    const missing = [];
-    if (!name || name.trim() === '') missing.push('name');
-    if (!number && number !== 0) missing.push('number');
-    if (!position || position.trim() === '') missing.push('position');
-    if (!finalTeamId || finalTeamId.trim() === '') missing.push('team/teamId');
-    if (!finalLeagueId || finalLeagueId.trim() === '') missing.push('league/leagueId');
-
-    if (missing.length > 0) {
-      console.log('❌ Missing required fields:', missing);
+    if (!name || !number || !position || !teamId || !leagueId) {
       return res.status(400).json({ 
-        error: `Missing required fields: ${missing.join(', ')}`,
-        received: { name, number, position, team: finalTeamId, league: finalLeagueId },
-        missing
+        error: 'Name, number, position, team, and league are required' 
       });
     }
 
-    console.log('✅ All required fields present');
-
-    // Convert and validate number
-    const playerNumber = parseInt(number);
-    if (isNaN(playerNumber) || playerNumber < 1 || playerNumber > 99) {
-      console.log('❌ Invalid player number:', number);
-      return res.status(400).json({ 
-        error: 'Player number must be between 1 and 99' 
-      });
+    // Verify team exists and belongs to the league
+    const team = await Team.findOne({ _id: teamId, league: leagueId });
+    if (!team) {
+      return res.status(400).json({ error: 'Team not found or does not belong to this league' });
     }
 
-    // ✅ ENHANCED: Check for duplicate jersey number in team
-    console.log('🔍 Checking for duplicate jersey number...');
-    const existingPlayer = await Player.findOne({ 
-      team: finalTeamId, 
-      number: playerNumber 
-    });
-    
+    // Check if jersey number is already taken in this team
+    const existingPlayer = await Player.findOne({ team: teamId, number: parseInt(number) });
     if (existingPlayer) {
-      console.log('❌ Jersey number taken:', playerNumber, 'by player:', existingPlayer.name);
-      return res.status(400).json({ 
-        error: `Jersey number ${playerNumber} is already taken by ${existingPlayer.name}` 
-      });
+      return res.status(400).json({ error: 'Jersey number already taken in this team' });
     }
 
-    console.log('✅ Jersey number is available');
-
-    // ✅ ENHANCED: Verify team and league relationship
-    console.log('🔍 Verifying team exists in league...');
-    const teamDoc = await Team.findOne({ _id: finalTeamId, league: finalLeagueId });
-    if (!teamDoc) {
-      console.log('❌ Team not found in league');
-      
-      // Provide detailed error information
-      const teamExists = await Team.findById(finalTeamId);
-      const leagueExists = await League.findById(finalLeagueId);
-      
-      if (!teamExists) {
-        return res.status(404).json({ error: 'Team not found' });
-      } else if (!leagueExists) {
-        return res.status(404).json({ error: 'League not found' });
-      } else {
-        return res.status(404).json({ 
-          error: 'Team does not belong to the specified league',
-          teamLeague: teamExists.league,
-          requestedLeague: finalLeagueId
-        });
-      }
-    }
-
-    console.log('✅ Team verification passed:', teamDoc.name);
-
-    // ✅ Create player with proper field names
-    const playerData = {
+    const newPlayer = new Player({
       name: name.trim(),
-      number: playerNumber,
-      position: position.trim(),
-      photo: photo?.trim() || '',
-      team: finalTeamId,        // Use 'team' field as defined in schema
-      league: finalLeagueId,    // Use 'league' field as defined in schema
-      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-      nationality: nationality?.trim() || '',
-      height: height ? parseInt(height) : undefined,
-      weight: weight ? parseInt(weight) : undefined,
-      preferredFoot: preferredFoot?.trim() || '',
-      bio: bio?.trim() || '',
-      previousClubs: previousClubs?.trim() || '',
+      number: parseInt(number),
+      position,
+      team: teamId,
+      league: leagueId,
+      photo: photo || '',
+      dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
+      nationality: nationality || '',
+      height: height ? parseInt(height) : null,
+      weight: weight ? parseInt(weight) : null,
+      preferredFoot: preferredFoot || '',
+      bio: bio || '',
       stats: {
         appearances: 0,
         goals: 0,
@@ -274,61 +128,36 @@ async function createPlayer(req, res) {
         saves: 0,
         cleanSheets: 0
       },
+      status: 'active',
       isActive: true
-    };
+    });
 
-    console.log('💾 Creating player with data:', JSON.stringify(playerData, null, 2));
-
-    const player = new Player(playerData);
-    const savedPlayer = await player.save();
-    
-    console.log('✅ Player saved with ID:', savedPlayer._id);
+    const savedPlayer = await newPlayer.save();
 
     // Update team player count
-    await Team.findByIdAndUpdate(finalTeamId, {
+    await Team.findByIdAndUpdate(teamId, {
       $inc: { playersCount: 1 }
     });
 
-    console.log('✅ Team player count updated');
-
-    // Return populated player data
     const populatedPlayer = await Player.findById(savedPlayer._id)
       .populate('team', 'name logo')
-      .populate('league', 'name');
+      .populate('league', 'name season');
 
-    console.log('🎉 Player creation successful:', populatedPlayer.name);
-
-    res.status(201).json({
+    console.log('✅ Player created successfully:', savedPlayer._id);
+    return res.status(201).json({
       message: 'Player created successfully',
       player: populatedPlayer
     });
-
   } catch (error) {
-    console.error('💥 Create player error:', error);
-    
-    // Handle specific MongoDB errors
-    if (error.code === 11000) {
-      return res.status(400).json({ 
-        error: 'Player with this number already exists in the team',
-        details: error.message 
-      });
-    }
-    
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(e => e.message);
-      return res.status(400).json({ 
-        error: 'Validation failed',
-        details: validationErrors 
-      });
-    }
-    
-    res.status(500).json({ 
+    console.error('❌ Error creating player:', error);
+    return res.status(500).json({ 
       error: 'Failed to create player',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: error.message 
     });
   }
 }
 
+// UPDATE player - Simple auth
 async function updatePlayer(req, res) {
   try {
     const { 
@@ -336,6 +165,7 @@ async function updatePlayer(req, res) {
       name, 
       number, 
       position, 
+      team: teamId,
       photo,
       dateOfBirth,
       nationality,
@@ -343,68 +173,84 @@ async function updatePlayer(req, res) {
       weight,
       preferredFoot,
       bio,
-      previousClubs,
       stats,
-      isActive
+      status
     } = req.body;
+
+    console.log('🔄 Updating player:', id);
+    console.log('👤 User updating player:', req.user?.username, 'Role:', req.user?.role);
 
     if (!id) {
       return res.status(400).json({ error: 'Player ID is required' });
     }
 
-    const player = await Player.findById(id);
-    if (!player) {
+    const existingPlayer = await Player.findById(id);
+    if (!existingPlayer) {
       return res.status(404).json({ error: 'Player not found' });
     }
 
-    // If updating jersey number, check availability
-    if (number && parseInt(number) !== player.number) {
-      const existingPlayer = await Player.findOne({ 
-        team: player.team, 
-        number: parseInt(number), 
-        _id: { $ne: id } 
+    // Check jersey number conflicts if number or team is being changed
+    if ((number && number !== existingPlayer.number) || (teamId && teamId !== existingPlayer.team.toString())) {
+      const conflictTeam = teamId || existingPlayer.team;
+      const conflictNumber = number || existingPlayer.number;
+      
+      const numberConflict = await Player.findOne({
+        team: conflictTeam,
+        number: parseInt(conflictNumber),
+        _id: { $ne: id }
       });
-      if (existingPlayer) {
+      
+      if (numberConflict) {
         return res.status(400).json({ error: 'Jersey number already taken in this team' });
       }
     }
 
-    const updateData = {};
-    if (name) updateData.name = name;
+    const updateData = {
+      updatedAt: new Date()
+    };
+
+    if (name) updateData.name = name.trim();
     if (number) updateData.number = parseInt(number);
     if (position) updateData.position = position;
+    if (teamId) updateData.team = teamId;
     if (photo !== undefined) updateData.photo = photo;
-    if (dateOfBirth !== undefined) updateData.dateOfBirth = dateOfBirth ? new Date(dateOfBirth) : null;
+    if (dateOfBirth) updateData.dateOfBirth = new Date(dateOfBirth);
     if (nationality !== undefined) updateData.nationality = nationality;
-    if (height !== undefined) updateData.height = height ? parseInt(height) : null;
-    if (weight !== undefined) updateData.weight = weight ? parseInt(weight) : null;
+    if (height) updateData.height = parseInt(height);
+    if (weight) updateData.weight = parseInt(weight);
     if (preferredFoot !== undefined) updateData.preferredFoot = preferredFoot;
     if (bio !== undefined) updateData.bio = bio;
-    if (previousClubs !== undefined) updateData.previousClubs = previousClubs;
-    if (isActive !== undefined) updateData.isActive = isActive;
+    if (status) updateData.status = status;
     
-    // Update stats if provided
     if (stats) {
-      updateData.stats = { ...player.stats.toObject(), ...stats };
+      updateData.stats = { ...existingPlayer.stats, ...stats };
     }
 
     const updatedPlayer = await Player.findByIdAndUpdate(id, updateData, { new: true })
       .populate('team', 'name logo')
-      .populate('league', 'name');
+      .populate('league', 'name season');
 
-    res.status(200).json({
+    console.log('✅ Player updated successfully:', id);
+    return res.status(200).json({
       message: 'Player updated successfully',
       player: updatedPlayer
     });
   } catch (error) {
-    console.error('Update player error:', error);
-    res.status(500).json({ error: 'Failed to update player' });
+    console.error('❌ Error updating player:', error);
+    return res.status(500).json({ 
+      error: 'Failed to update player',
+      details: error.message 
+    });
   }
 }
 
+// DELETE player - Simple auth
 async function deletePlayer(req, res) {
   try {
     const { id } = req.query;
+
+    console.log('🗑️ Deleting player:', id);
+    console.log('👤 User deleting player:', req.user?.username, 'Role:', req.user?.role);
 
     if (!id) {
       return res.status(400).json({ error: 'Player ID is required' });
@@ -422,9 +268,15 @@ async function deletePlayer(req, res) {
       $inc: { playersCount: -1 }
     });
 
-    res.status(200).json({ message: 'Player deleted successfully' });
+    console.log('✅ Player deleted successfully:', player.name);
+    return res.status(200).json({ 
+      message: `Player "${player.name}" deleted successfully`
+    });
   } catch (error) {
-    console.error('Delete player error:', error);
-    res.status(500).json({ error: 'Failed to delete player' });
+    console.error('❌ Error deleting player:', error);
+    return res.status(500).json({ 
+      error: 'Failed to delete player',
+      details: error.message 
+    });
   }
 }

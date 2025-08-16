@@ -1,9 +1,9 @@
-// pages/api/matches/index.js - FIXED: Remove 50 match limit for league queries
+// pages/api/matches/index.js - FIXED: Remove default limit
 import connectDB from '../../../lib/mongodb';
 import { Match, Team, League } from '../../../lib/models';
 import { authMiddleware } from '../../../lib/auth';
 
-async function handler(req, res) {
+export default async function handler(req, res) {
   try {
     await connectDB();
 
@@ -11,11 +11,11 @@ async function handler(req, res) {
       case 'GET':
         return await getMatches(req, res);
       case 'POST':
-        return await createMatch(req, res);
+        return await authMiddleware(createMatch)(req, res);
       case 'PUT':
-        return await updateMatch(req, res);
+        return await authMiddleware(updateMatch)(req, res);
       case 'DELETE':
-        return await deleteMatch(req, res);
+        return await authMiddleware(deleteMatch)(req, res);
       default:
         return res.status(405).json({ error: 'Method not allowed' });
     }
@@ -28,110 +28,108 @@ async function handler(req, res) {
   }
 }
 
+// GET matches - FIXED: No default limit, optional limit parameter
 async function getMatches(req, res) {
   try {
-    const { league, status, date, limit, team } = req.query;
+    const { league, leagueId, team, status, limit } = req.query;
     
-    let filter = {};
+    let query = {};
     
-    if (league) filter.league = league;
-    if (status) filter.status = status;
+    // Support both 'league' and 'leagueId' parameters
+    const leagueFilter = league || leagueId;
+    if (leagueFilter) {
+      query.league = leagueFilter;
+    }
+    
     if (team) {
-      filter.$or = [
+      query.$or = [
         { homeTeam: team },
         { awayTeam: team }
       ];
     }
-    if (date) {
-      const queryDate = new Date(date);
-      const nextDay = new Date(queryDate.getTime() + 24 * 60 * 60 * 1000);
-      filter.date = {
-        $gte: queryDate.toISOString().split('T')[0],
-        $lt: nextDay.toISOString().split('T')[0]
-      };
+    
+    if (status) {
+      query.status = status;
     }
 
-    // ✅ FIXED: Only apply limit if explicitly requested, otherwise get ALL matches for league
-    let query = Match.find(filter)
+    console.log('🔍 Match query:', query);
+    console.log('🔍 Limit parameter:', limit);
+
+    let matchQuery = Match.find(query)
       .populate('homeTeam', 'name logo')
       .populate('awayTeam', 'name logo')
-      .populate('league', 'name')
-      .sort({ date: 1, time: 1, round: 1 });
+      .populate('league', 'name season')
+      .sort({ date: 1, time: 1 });
 
-    // Only apply limit if specifically requested (not for league queries)
-    if (limit && !league) {
-      query = query.limit(parseInt(limit));
-    } else if (limit && league) {
-      // For league queries, still allow explicit limit override
-      query = query.limit(parseInt(limit));
+    // ✅ FIXED: Only apply limit if explicitly requested
+    if (limit && !isNaN(parseInt(limit))) {
+      matchQuery = matchQuery.limit(parseInt(limit));
+      console.log('🔢 Applying limit:', parseInt(limit));
+    } else {
+      console.log('🔢 No limit applied - fetching all matches');
     }
-    // If no limit specified and it's a league query, get ALL matches (no limit)
 
-    const matches = await query;
+    const matches = await matchQuery;
 
-    console.log(`📊 Returning ${matches.length} matches for league ${league || 'all'}`);
-
-    res.status(200).json(matches);
+    console.log(`📅 Retrieved ${matches.length} matches${leagueFilter ? ` for league ${leagueFilter}` : ''}`);
+    return res.status(200).json(matches);
   } catch (error) {
-    console.error('Get matches error:', error);
-    res.status(500).json({ error: 'Failed to fetch matches' });
+    console.error('Error fetching matches:', error);
+    return res.status(500).json({ error: 'Failed to fetch matches' });
   }
 }
 
+// CREATE match - Same as before
 async function createMatch(req, res) {
   try {
-    console.log('🆕 Creating new match:', req.body);
-    
-    const { homeTeam, awayTeam, leagueId, date, time, venue, referee, round } = req.body;
-    
-    // Validate required fields
-    if (!homeTeam || !awayTeam || !leagueId) {
+    const { 
+      leagueId, 
+      homeTeam, 
+      awayTeam, 
+      date, 
+      time, 
+      round, 
+      venue,
+      referee,
+      matchday 
+    } = req.body;
+
+    console.log('🏗️ Creating match with data:', { leagueId, homeTeam, awayTeam, date, time });
+    console.log('👤 User creating match:', req.user?.username, 'Role:', req.user?.role);
+
+    if (!leagueId || !homeTeam || !awayTeam || !date || !time || !round) {
       return res.status(400).json({ 
-        error: 'Home team, away team, and league are required' 
+        error: 'Missing required fields: leagueId, homeTeam, awayTeam, date, time, round' 
       });
     }
-    
-    if (homeTeam === awayTeam) {
-      return res.status(400).json({ 
-        error: 'Team cannot play against itself' 
-      });
-    }
-    
-    // Verify teams exist and belong to the league
-    const [homeTeamDoc, awayTeamDoc, league] = await Promise.all([
+
+    // Validate teams exist and belong to the league
+    const [homeTeamDoc, awayTeamDoc] = await Promise.all([
       Team.findOne({ _id: homeTeam, league: leagueId }),
-      Team.findOne({ _id: awayTeam, league: leagueId }),
-      League.findById(leagueId)
+      Team.findOne({ _id: awayTeam, league: leagueId })
     ]);
-    
+
     if (!homeTeamDoc) {
-      return res.status(400).json({ error: 'Home team not found in this league' });
+      return res.status(400).json({ error: 'Home team not found or does not belong to this league' });
     }
-    
+
     if (!awayTeamDoc) {
-      return res.status(400).json({ error: 'Away team not found in this league' });
+      return res.status(400).json({ error: 'Away team not found or does not belong to this league' });
     }
-    
-    if (!league) {
-      return res.status(400).json({ error: 'League not found' });
+
+    if (homeTeam === awayTeam) {
+      return res.status(400).json({ error: 'Home team and away team cannot be the same' });
     }
-    
-    // Get next round number if not specified
-    let nextRound = round;
-    if (!nextRound) {
-      const lastMatch = await Match.findOne({ league: leagueId }).sort({ round: -1 });
-      nextRound = lastMatch ? lastMatch.round + 1 : 1;
-    }
-    
+
     // Create match
-    const matchData = {
+    const newMatch = new Match({
       homeTeam,
       awayTeam,
       league: leagueId,
-      date: date || new Date().toISOString().split('T')[0],
-      time: time || '18:00',
-      round: nextRound,
-      matchday: nextRound,
+      date,
+      time,
+      round: parseInt(round),
+      matchday: matchday || parseInt(round),
       venue: venue || 'Manadhoo Futsal Ground',
       referee: referee || '',
       status: 'scheduled',
@@ -140,151 +138,171 @@ async function createMatch(req, res) {
         away: 0,
         halfTime: { home: 0, away: 0 }
       },
-      events: [],
       liveData: {
         currentMinute: 0,
         isLive: false,
         period: 'first_half'
-      },
-      statistics: {
-        home: { possession: 0, shots: 0, shotsOnTarget: 0, corners: 0, fouls: 0, yellowCards: 0, redCards: 0 },
-        away: { possession: 0, shots: 0, shotsOnTarget: 0, corners: 0, fouls: 0, yellowCards: 0, redCards: 0 }
       }
-    };
-    
-    const newMatch = new Match(matchData);
-    await newMatch.save();
+    });
+
+    const savedMatch = await newMatch.save();
     
     // Populate the response
-    const populatedMatch = await Match.findById(newMatch._id)
+    const populatedMatch = await Match.findById(savedMatch._id)
       .populate('homeTeam', 'name logo')
       .populate('awayTeam', 'name logo')
-      .populate('league', 'name');
-    
-    console.log('✅ Match created successfully:', populatedMatch._id);
-    
-    res.status(201).json({
-      success: true,
+      .populate('league', 'name season');
+
+    // Update league match count
+    await League.findByIdAndUpdate(leagueId, {
+      $inc: { matchesCount: 1 }
+    });
+
+    console.log('✅ Match created successfully:', savedMatch._id);
+    return res.status(201).json({
       message: 'Match created successfully',
       match: populatedMatch
     });
-    
   } catch (error) {
-    console.error('Create match error:', error);
-    res.status(500).json({ 
+    console.error('❌ Error creating match:', error);
+    return res.status(500).json({ 
       error: 'Failed to create match',
       details: error.message 
     });
   }
 }
 
-// ✅ ENHANCED: Proper match update function
+// UPDATE match - Same as before
 async function updateMatch(req, res) {
   try {
-    console.log('🔄 Updating match:', req.body);
-    
-    const { id, homeTeam, awayTeam, date, time, venue, referee, score, status, round } = req.body;
-    
+    const { 
+      id, 
+      homeTeam, 
+      awayTeam, 
+      date, 
+      time, 
+      round, 
+      venue, 
+      referee, 
+      status,
+      homeScore,
+      awayScore,
+      matchday 
+    } = req.body;
+
+    console.log('🔄 Updating match:', id);
+    console.log('👤 User updating match:', req.user?.username, 'Role:', req.user?.role);
+
     if (!id) {
-      return res.status(400).json({ error: 'Match ID is required for update' });
+      return res.status(400).json({ error: 'Match ID is required' });
     }
-    
-    // Find the existing match
-    const existingMatch = await Match.findById(id);
+
+    // Find existing match
+    const existingMatch = await Match.findById(id).populate('league');
     if (!existingMatch) {
       return res.status(404).json({ error: 'Match not found' });
     }
-    
-    console.log('📝 Found existing match:', existingMatch._id);
-    
+
     // Prepare update data
     const updateData = {};
     
-    // Only update provided fields
-    if (homeTeam !== undefined) updateData.homeTeam = homeTeam;
-    if (awayTeam !== undefined) updateData.awayTeam = awayTeam;
-    if (date !== undefined) updateData.date = date;
-    if (time !== undefined) updateData.time = time;
-    if (venue !== undefined) updateData.venue = venue;
+    if (homeTeam) updateData.homeTeam = homeTeam;
+    if (awayTeam) updateData.awayTeam = awayTeam;
+    if (date) updateData.date = date;
+    if (time) updateData.time = time;
+    if (round) updateData.round = parseInt(round);
+    if (matchday) updateData.matchday = parseInt(matchday);
+    if (venue) updateData.venue = venue;
     if (referee !== undefined) updateData.referee = referee;
-    if (status !== undefined) updateData.status = status;
-    if (round !== undefined) updateData.round = round;
-    
+    if (status) updateData.status = status;
+
     // Handle score updates
-    if (score !== undefined) {
+    if (homeScore !== undefined || awayScore !== undefined) {
       updateData.score = {
-        home: score.home || 0,
-        away: score.away || 0,
-        halfTime: score.halfTime || { home: 0, away: 0 }
+        ...existingMatch.score,
+        home: homeScore !== undefined ? parseInt(homeScore) : existingMatch.score.home,
+        away: awayScore !== undefined ? parseInt(awayScore) : existingMatch.score.away
       };
     }
-    
-    // Validate team change if provided
-    if (homeTeam && awayTeam && homeTeam === awayTeam) {
-      return res.status(400).json({ error: 'Team cannot play against itself' });
+
+    // Validate teams if being updated
+    if (homeTeam || awayTeam) {
+      const homeTeamId = homeTeam || existingMatch.homeTeam;
+      const awayTeamId = awayTeam || existingMatch.awayTeam;
+
+      if (homeTeamId.toString() === awayTeamId.toString()) {
+        return res.status(400).json({ error: 'Home team and away team cannot be the same' });
+      }
+
+      const leagueId = existingMatch.league._id.toString();
+      const [homeTeamDoc, awayTeamDoc] = await Promise.all([
+        Team.findOne({ _id: homeTeamId, league: leagueId }),
+        Team.findOne({ _id: awayTeamId, league: leagueId })
+      ]);
+
+      if (!homeTeamDoc || !awayTeamDoc) {
+        return res.status(400).json({ error: 'One or both teams not found or do not belong to this league' });
+      }
     }
-    
-    // Update the match
-    const updatedMatch = await Match.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    )
-    .populate('homeTeam', 'name logo')
-    .populate('awayTeam', 'name logo')
-    .populate('league', 'name');
-    
-    if (!updatedMatch) {
-      return res.status(404).json({ error: 'Failed to update match' });
-    }
-    
-    console.log('✅ Match updated successfully:', updatedMatch._id);
-    
-    res.status(200).json({
-      success: true,
+
+    updateData.updatedAt = new Date();
+
+    const updatedMatch = await Match.findByIdAndUpdate(id, updateData, { new: true })
+      .populate('homeTeam', 'name logo')
+      .populate('awayTeam', 'name logo')
+      .populate('league', 'name season');
+
+    console.log('✅ Match updated successfully:', id);
+    return res.status(200).json({
       message: 'Match updated successfully',
       match: updatedMatch
     });
-    
   } catch (error) {
-    console.error('Update match error:', error);
-    res.status(500).json({ 
+    console.error('❌ Error updating match:', error);
+    return res.status(500).json({ 
       error: 'Failed to update match',
       details: error.message 
     });
   }
 }
 
+// DELETE match - Same as before
 async function deleteMatch(req, res) {
   try {
     const { id } = req.query;
-    
+
+    console.log('🗑️ Deleting match:', id);
+    console.log('👤 User deleting match:', req.user?.username, 'Role:', req.user?.role);
+
     if (!id) {
       return res.status(400).json({ error: 'Match ID is required' });
     }
-    
-    console.log('🗑️ Deleting match:', id);
-    
-    const deletedMatch = await Match.findByIdAndDelete(id);
-    
-    if (!deletedMatch) {
+
+    // Find existing match
+    const existingMatch = await Match.findById(id).populate('league');
+    if (!existingMatch) {
       return res.status(404).json({ error: 'Match not found' });
     }
-    
-    console.log('✅ Match deleted successfully:', id);
-    
-    res.status(200).json({
-      success: true,
-      message: 'Match deleted successfully'
+
+    // Don't allow deletion of live matches
+    if (existingMatch.status === 'live') {
+      return res.status(400).json({ error: 'Cannot delete a live match' });
+    }
+
+    await Match.findByIdAndDelete(id);
+
+    // Update league match count
+    await League.findByIdAndUpdate(existingMatch.league._id, {
+      $inc: { matchesCount: -1 }
     });
-    
+
+    console.log('✅ Match deleted successfully:', id);
+    return res.status(200).json({ message: 'Match deleted successfully' });
   } catch (error) {
-    console.error('Delete match error:', error);
-    res.status(500).json({ 
+    console.error('❌ Error deleting match:', error);
+    return res.status(500).json({ 
       error: 'Failed to delete match',
       details: error.message 
     });
   }
 }
-
-export default authMiddleware(handler);

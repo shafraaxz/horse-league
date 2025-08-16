@@ -1,4 +1,4 @@
-// pages/index.js - Production Clean Version
+// pages/index.js - Enhanced with League Delete and Admin Management
 import { useState, useEffect, useCallback } from 'react';
 import Layout from '../components/Layout';
 import Dashboard from '../components/Dashboard';
@@ -13,9 +13,10 @@ import LeagueModal from '../components/admin/LeagueModal';
 import TeamModal from '../components/admin/TeamModal';
 import PlayerModal from '../components/admin/PlayerModal';
 import MatchModal from '../components/admin/MatchModal';
+import AdminUserModal from '../components/admin/AdminUserModal';
 import ScheduleGenerator from '../components/ScheduleGenerator';
 
-import { X } from 'lucide-react';
+import { X, Plus, Shield, Users, User, Edit, Trash2 } from 'lucide-react';
 
 const API_BASE = '/api';
 
@@ -68,6 +69,11 @@ export default function Home() {
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [isLoginLoading, setIsLoginLoading] = useState(false);
 
+  // Admin Management State
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [selectedAdmin, setSelectedAdmin] = useState(null);
+
   // Modal State
   const [modals, setModals] = useState({
     league: { open: false, data: null },
@@ -77,14 +83,15 @@ export default function Home() {
     schedule: { open: false, data: null }
   });
 
-  // Navigation items
+  // Navigation items - Enhanced with admin panel
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '🏠', alwaysShow: true },
     { id: 'schedule', label: 'Schedule', icon: '📅', requiresLeague: true },
     { id: 'table', label: 'League Table', icon: '📊', requiresLeague: true },
     { id: 'teams', label: 'Teams', icon: '👥', requiresLeague: true },
     { id: 'statistics', label: 'Statistics', icon: '📈', requiresLeague: true },
-    { id: 'live', label: 'Live', icon: '🔴', requiresLeague: true, requiresLive: true }
+    { id: 'live', label: 'Live', icon: '🔴', requiresLeague: true, requiresLive: true },
+    { id: 'admin', label: 'Admin Panel', icon: '🛡️', requiresAdmin: true }
   ];
 
   // Show toast function
@@ -93,36 +100,58 @@ export default function Home() {
   }, []);
 
   // API Functions
-  const apiCall = useCallback(async (endpoint, options = {}) => {
-    try {
-      const headers = { 'Content-Type': 'application/json' };
-      
-      const token = localStorage.getItem('adminToken');
-      if (token && (options.method === 'POST' || options.method === 'PUT' || options.method === 'DELETE')) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE}${endpoint}`, {
-        headers,
-        ...options
-      });
-
-      if (response.status === 401) {
-        handleLogout();
-        return null;
-      }
-      
-      if (response.ok) {
-        const data = await response.json();
-        return data;
-      } else {
-        const error = await response.json();
-        throw new Error(error.error || 'API call failed');
-      }
-    } catch (error) {
-      throw error;
+  // In your pages/index.js - Replace your apiCall function with this
+const apiCall = useCallback(async (endpoint, options = {}) => {
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    
+    // ✅ ALWAYS get fresh token from localStorage
+    const token = localStorage.getItem('adminToken');
+    console.log('🔑 API Call to:', endpoint);
+    console.log('🔑 Token found?', !!token);
+    console.log('🔑 Method:', options.method || 'GET');
+    
+    // ✅ CRITICAL: Send token for admin endpoints and write operations
+    const needsAuth = endpoint.includes('/admin') || 
+                     endpoint.includes('/matches') || 
+                     endpoint.includes('/teams') || 
+                     endpoint.includes('/players') || 
+                     endpoint.includes('/leagues') ||
+                     ['POST', 'PUT', 'DELETE'].includes(options.method);
+    
+    if (token && needsAuth) {
+      headers.Authorization = `Bearer ${token}`;
+      console.log('✅ Added Authorization header for', endpoint);
+    } else if (needsAuth && !token) {
+      console.log('⚠️ Endpoint needs auth but no token found');
     }
-  }, []);
+
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      headers,
+      ...options
+    });
+
+    console.log('📡 Response status:', response.status, 'for', endpoint);
+
+    if (response.status === 401) {
+      console.log('❌ 401 Unauthorized - clearing auth state');
+      handleLogout();
+      return null;
+    }
+    
+    if (response.ok) {
+      const data = await response.json();
+      return data;
+    } else {
+      const error = await response.json();
+      console.error('❌ API Error:', error);
+      throw new Error(error.error || 'API call failed');
+    }
+  } catch (error) {
+    console.error('❌ API Call failed:', error);
+    throw error;
+  }
+}, []);
 
   // Modal Management
   const openModal = useCallback((type, data = null) => {
@@ -142,6 +171,268 @@ export default function Home() {
       [type]: { open: false, data: null }
     }));
   }, []);
+
+  // League Management - Enhanced with delete functionality
+  const handleDeleteLeague = useCallback(async (leagueId) => {
+    if (!isLoggedIn) {
+      showToast('Please login to delete leagues', 'warning');
+      return;
+    }
+
+    const leagueToDelete = leagues.find(l => l._id === leagueId);
+    if (!leagueToDelete) {
+      showToast('League not found', 'error');
+      return;
+    }
+
+    const confirmMessage = `Are you sure you want to delete "${leagueToDelete.name}"?\n\nThis will permanently delete:\n- All teams in this league\n- All players in this league\n- All matches in this league\n- All statistics\n\nThis action cannot be undone.`;
+    
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      // Call delete API
+      await apiCall(`/leagues?id=${leagueId}`, { 
+        method: 'DELETE' 
+      });
+
+      // If deleted league was selected, clear selection
+      if (selectedLeague === leagueId) {
+        setSelectedLeague(null);
+        setLeagueData(null);
+      }
+
+      // Reload leagues list
+      await loadLeagues();
+      
+      showToast(`League "${leagueToDelete.name}" deleted successfully`, 'success');
+    } catch (error) {
+      showToast('Failed to delete league: ' + error.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoggedIn, leagues, selectedLeague, apiCall, showToast]);
+
+  // Admin User Management
+  const loadAdminUsers = useCallback(async () => {
+    if (!isLoggedIn) return;
+    
+    try {
+      const result = await apiCall('/admin');
+      setAdminUsers(result || []);
+    } catch (error) {
+      console.error('Failed to load admin users:', error);
+    }
+  }, [isLoggedIn, apiCall]);
+
+  const handleCreateAdmin = useCallback(() => {
+    if (!isLoggedIn || currentUser?.role !== 'admin') {
+      showToast('Only administrators can create new admin users', 'warning');
+      return;
+    }
+    setSelectedAdmin(null);
+    setShowAdminModal(true);
+  }, [isLoggedIn, currentUser, showToast]);
+
+  const handleEditAdmin = useCallback((admin) => {
+    if (!isLoggedIn || currentUser?.role !== 'admin') {
+      showToast('Only administrators can edit admin users', 'warning');
+      return;
+    }
+    setSelectedAdmin(admin);
+    setShowAdminModal(true);
+  }, [isLoggedIn, currentUser, showToast]);
+
+  const handleSaveAdmin = useCallback(async (adminData) => {
+    try {
+      setIsLoading(true);
+      
+      const method = adminData._id ? 'PUT' : 'POST';
+      await apiCall('/admin', {
+        method,
+        body: JSON.stringify(adminData)
+      });
+
+      await loadAdminUsers();
+      setShowAdminModal(false);
+      setSelectedAdmin(null);
+      showToast(adminData._id ? 'Admin updated successfully!' : 'Admin created successfully!');
+    } catch (error) {
+      showToast('Failed to save admin: ' + error.message, 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [apiCall, loadAdminUsers, showToast]);
+
+  const handleDeleteAdmin = useCallback(async (username) => {
+    if (!isLoggedIn || currentUser?.role !== 'admin') {
+      showToast('Only administrators can delete admin users', 'warning');
+      return;
+    }
+
+    if (username === currentUser.username) {
+      showToast('You cannot delete your own account', 'warning');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete admin user "${username}"?`)) {
+      return;
+    }
+
+    try {
+      await apiCall(`/admin?username=${username}`, { method: 'DELETE' });
+      await loadAdminUsers();
+      showToast('Admin user deleted successfully');
+    } catch (error) {
+      showToast('Failed to delete admin user: ' + error.message, 'error');
+    }
+  }, [isLoggedIn, currentUser, apiCall, loadAdminUsers, showToast]);
+
+  // Admin Panel Rendering
+  const renderAdminPanel = () => {
+    if (!isLoggedIn) {
+      return (
+        <div className="text-center py-12">
+          <div className="text-6xl mb-4">🔒</div>
+          <h3 className="text-xl font-semibold text-white mb-2">Access Denied</h3>
+          <p className="text-slate-400">Please login with admin credentials to access this panel</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-white">Admin Panel</h2>
+            <p className="text-slate-400">
+              Manage administrators and system settings
+            </p>
+          </div>
+          
+          {currentUser?.role === 'admin' && (
+            <button
+              onClick={handleCreateAdmin}
+              className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add Admin
+            </button>
+          )}
+        </div>
+
+        {/* Current User Info */}
+        <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/30 rounded-xl p-6">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-blue-400" />
+            Your Account
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="text-slate-400 text-sm">Username</label>
+              <div className="text-white font-semibold">{currentUser?.username}</div>
+            </div>
+            <div>
+              <label className="text-slate-400 text-sm">Role</label>
+              <div className="text-white font-semibold capitalize">{currentUser?.role}</div>
+            </div>
+            <div>
+              <label className="text-slate-400 text-sm">Status</label>
+              <div className="text-green-400 font-semibold">Active</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Admin Users List */}
+        {currentUser?.role === 'admin' && (
+          <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
+            <h3 className="text-lg font-semibold text-white mb-4">Admin Users</h3>
+            
+            {adminUsers.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p>No admin users found</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {adminUsers.map(admin => (
+                  <div key={admin._id} className="flex items-center justify-between p-4 bg-slate-700/30 rounded-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full flex items-center justify-center">
+                        <User className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <div className="text-white font-semibold flex items-center gap-2">
+                          {admin.username}
+                          {admin.username === currentUser.username && (
+                            <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded">YOU</span>
+                          )}
+                        </div>
+                        <div className="text-slate-400 text-sm capitalize">{admin.role}</div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                        admin.isActive ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                      }`}>
+                        {admin.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                      
+                      <button
+                        onClick={() => handleEditAdmin(admin)}
+                        className="p-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+                        title="Edit Admin"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      
+                      {admin.username !== currentUser.username && admin.username !== 'admin' && (
+                        <button
+                          onClick={() => handleDeleteAdmin(admin.username)}
+                          className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors"
+                          title="Delete Admin"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* System Settings */}
+        <div className="bg-slate-800/50 rounded-xl border border-slate-700 p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">System Settings</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 bg-slate-700/30 rounded-lg">
+              <h4 className="font-semibold text-white mb-2">Database Status</h4>
+              <p className="text-green-400 text-sm">✅ Connected</p>
+            </div>
+            <div className="p-4 bg-slate-700/30 rounded-lg">
+              <h4 className="font-semibold text-white mb-2">Current League</h4>
+              <p className="text-blue-400 text-sm">{leagueData?.league?.name || 'No league selected'}</p>
+            </div>
+            <div className="p-4 bg-slate-700/30 rounded-lg">
+              <h4 className="font-semibold text-white mb-2">Total Teams</h4>
+              <p className="text-orange-400 text-sm">{leagueData?.teams?.length || 0}</p>
+            </div>
+            <div className="p-4 bg-slate-700/30 rounded-lg">
+              <h4 className="font-semibold text-white mb-2">Total Matches</h4>
+              <p className="text-purple-400 text-sm">{leagueData?.matches?.length || 0}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // Team Management
   const handleCreateTeam = useCallback(() => {
@@ -618,19 +909,21 @@ export default function Home() {
         }
       }
       
-      const loadedLeagues = await loadLeagues();
-      
-      if (loadedLeagues.length > 0 && !selectedLeague) {
-        const firstLeague = loadedLeagues[0];
-        setSelectedLeague(firstLeague._id);
-        await loadLeagueData(firstLeague._id);
-      }
+      // Load leagues but don't auto-select
+      await loadLeagues();
       
       setIsLoading(false);
     };
 
     initializeApp();
   }, []);
+
+  // Load admin users when logging in
+  useEffect(() => {
+    if (isLoggedIn && currentUser?.role === 'admin') {
+      loadAdminUsers();
+    }
+  }, [isLoggedIn, currentUser, loadAdminUsers]);
 
   // Auto-refresh live matches
   useEffect(() => {
@@ -671,7 +964,17 @@ export default function Home() {
 
     switch (activeSection) {
       case 'dashboard':
-        return <Dashboard leagueData={leagueData} isLoading={isLoading} />;
+        return (
+          <Dashboard 
+            leagueData={leagueData} 
+            isLoading={isLoading}
+            leagues={leagues}
+            selectedLeague={selectedLeague}
+            onLeagueSelect={handleLeagueChange}
+            onCreateLeague={() => openModal('league')}
+            isLoggedIn={isLoggedIn}
+          />
+        );
       case 'schedule':
         return <Schedule {...commonProps} />;
       case 'table':
@@ -690,6 +993,8 @@ export default function Home() {
         );
       case 'statistics':
         return <Statistics {...commonProps} />;
+      case 'admin':
+        return renderAdminPanel();
       case 'live':
         return (
           <div className="space-y-6">
@@ -760,6 +1065,7 @@ export default function Home() {
         onCreateTeam={handleCreateTeam}
         onCreatePlayer={() => openModal('player')}
         onGenerateSchedule={() => openModal('schedule')}
+        onDeleteLeague={handleDeleteLeague}
       >
         {renderCurrentSection()}
       </Layout>
@@ -777,6 +1083,7 @@ export default function Home() {
         onClose={() => closeModal('league')}
         league={modals.league.data}
         onSave={handleSaveLeague}
+        onDelete={handleDeleteLeague}
       />
 
       <TeamModal
@@ -812,6 +1119,17 @@ export default function Home() {
         selectedLeague={selectedLeague}
         onScheduleGenerated={handleScheduleGenerated}
         currentMatches={leagueData?.matches || []}
+      />
+
+      <AdminUserModal
+        isOpen={showAdminModal}
+        onClose={() => {
+          setShowAdminModal(false);
+          setSelectedAdmin(null);
+        }}
+        admin={selectedAdmin}
+        onSave={handleSaveAdmin}
+        currentUser={currentUser}
       />
 
       {toast && (
