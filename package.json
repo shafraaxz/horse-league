@@ -1,0 +1,69 @@
+{
+  "name": "football-league-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A comprehensive web application for managing football and futsal leagues, tournaments, teams, players, and matches with real-time live match management capabilities",
+  "keywords": [
+    "football",
+    "futsal",
+    "league",
+    "tournament",
+    "sports",
+    "nextjs",
+    "react",
+    "mongodb"
+  ],
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "seed": "node scripts/seed.js"
+  },
+  "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "@tailwindcss/postcss": "^4.1.12",
+    "axios": "^1.6.2",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^1.41.3",
+    "date-fns": "^3.0.6",
+    "formidable": "^3.5.4",
+    "framer-motion": "^10.16.4",
+    "joi": "^18.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "lucide-react": "^0.263.1",
+    "mongodb": "^6.3.0",
+    "mongoose": "^8.17.2",
+    "multer": "^1.4.5-lts.1",
+    "multer-storage-cloudinary": "^4.0.0",
+    "next": "14.0.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hook-form": "^7.48.2",
+    "react-hot-toast": "^2.4.1",
+    "react-select": "^5.8.0",
+    "react-table": "^7.8.0",
+    "recharts": "^2.8.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/aspect-ratio": "^0.4.2",
+    "@tailwindcss/forms": "^0.5.10",
+    "@tailwindcss/typography": "^0.5.16",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^8.55.0",
+    "eslint-config-next": "14.0.4",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.17"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/football-league-manager.git"
+  },
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "homepage": "https://football-league-manager.vercel.app"
+}
