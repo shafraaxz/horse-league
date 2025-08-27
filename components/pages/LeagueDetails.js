@@ -1,26 +1,22 @@
-// components/pages/LeagueDetails.js
+// components/pages/LeagueDetails.js (cleaned, buttons fixed)
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 
-function Card({ title, children, right }) {
-  return (
-    <div className="bg-white rounded-2xl shadow border p-5">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold">{title}</h3>
-        {right}
-      </div>
-      {children}
+const Card = ({ title, children, right }) => (
+  <div className="bg-white rounded-2xl shadow border p-5">
+    <div className="flex items-center justify-between mb-3">
+      <h3 className="text-lg font-semibold">{title}</h3>
+      {right}
     </div>
-  );
-}
+    {children}
+  </div>
+);
 
-function Field({ label, children }) {
-  return (
-    <label className="block">
-      <span className="block text-sm text-gray-700 mb-1">{label}</span>
-      {children}
-    </label>
-  );
-}
+const Field = ({ label, children }) => (
+  <label className="block">
+    <span className="block text-sm text-gray-700 mb-1">{label}</span>
+    {children}
+  </label>
+);
 
 function useCloudinaryUpload() {
   const CLOUD = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
@@ -105,7 +101,6 @@ function AddPlayerInline({ teams, onCreated, user }) {
   const [name, setName] = useState('');
   const [team, setTeam] = useState('');
   const [position, setPosition] = useState('');
-
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -152,7 +147,6 @@ function AddMatchInline({ teams, onCreated, user, season }) {
   const [awayTeam, setAway] = useState('');
   const [venue, setVenue] = useState('');
   const [round, setRound] = useState('');
-
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -161,16 +155,8 @@ function AddMatchInline({ teams, onCreated, user, season }) {
     setSaving(true); setErr('');
     try {
       const dt = date && time ? new Date(`${date}T${time}:00`) : null;
-      const payload = {
-        date: dt || undefined,
-        homeTeam, awayTeam, venue, round, season,
-        status: 'scheduled'
-      };
-      const r = await fetch('/api/matches', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const payload = { date: dt || undefined, homeTeam, awayTeam, venue, round, season, status: 'scheduled' };
+      const r = await fetch('/api/matches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.message || 'Failed to create match');
       setDate(''); setTime(''); setHome(''); setAway(''); setVenue(''); setRound('');
@@ -221,11 +207,7 @@ function AddTransferInline({ teams, players, season, onCreated, user }) {
     setSaving(true); setErr('');
     try {
       const payload = { player, toTeam, fee, season, date: date ? new Date(`${date}T00:00:00`) : undefined, notes };
-      const r = await fetch('/api/transfers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      const r = await fetch('/api/transfers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.message || 'Failed to create transfer');
       setPlayer(''); setToTeam(''); setFee(''); setDate(''); setNotes('');

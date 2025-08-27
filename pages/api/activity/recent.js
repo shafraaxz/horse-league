@@ -3,23 +3,9 @@ import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
 import Team from '../../../models/Team';
 import League from '../../../models/League';
-import Transfer from '../../../models/Transfer';
 
 export default async function handler(req, res) {
   const { method } = req;
-
-  console.log(`📊 Activity API: ${method} /api/activity/recent`);
-
-  try {
-    await dbConnect();
-  } catch (error) {
-    console.error('Database connection failed:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Database connection failed',
-      error: error.message
-    });
-  }
 
   if (method !== 'GET') {
     return res.status(405).json({
@@ -29,201 +15,165 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { 
-      limit = 20,
-      days = 7,
-      type = 'all' // 'all', 'players', 'teams', 'leagues', 'transfers'
-    } = req.query;
+    await dbConnect();
+  } catch (error) {
+    console.error('Database connection failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Database connection failed'
+    });
+  }
+
+  try {
+    const { limit = 10, days = 7 } = req.query;
+
+    // Get main league
+    const league = await League.findOne({ 
+      $or: [
+        { isDefault: true }, 
+        { slug: 'the-horse-futsal-league' }
+      ],
+      isActive: true 
+    });
+
+    if (!league) {
+      return res.status(200).json({
+        success: true,
+        data: []
+      });
+    }
 
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - parseInt(days));
 
-    console.log(`📊 Fetching recent activity from ${fromDate.toISOString()}`);
-
     const activities = [];
 
     // Get recent player registrations
-    if (type === 'all' || type === 'players') {
-      try {
-        const recentPlayers = await Player.find({
-          isActive: true,
-          createdAt: { $gte: fromDate }
-        })
-        .populate('league', 'name')
-        .populate('team', 'name')
-        .populate('currentTeam', 'name')
-        .sort({ createdAt: -1 })
-        .limit(parseInt(limit))
-        .lean();
+    const recentPlayers = await Player.find({
+      league: league._id,
+      isActive: true,
+      createdAt: { $gte: fromDate }
+    })
+    .populate('currentTeam', 'name')
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit))
+    .lean();
 
-        recentPlayers.forEach(player => {
-          activities.push({
-            id: `player_${player._id}`,
-            type: 'player_registered',
-            title: 'New Player Registered',
-            description: `${player.name} registered as ${player.position}`,
-            details: {
-              playerName: player.name,
-              position: player.position,
-              league: player.league?.name,
-              team: player.currentTeam?.name || player.team?.name,
-              nationality: player.nationality
-            },
-            timestamp: player.createdAt,
-            icon: 'user-plus',
-            color: 'green'
-          });
-        });
-      } catch (error) {
-        console.warn('Error fetching recent players:', error);
-      }
-    }
+    recentPlayers.forEach(player => {
+      activities.push({
+        id: `player_${player._id}`,
+        type: 'player_registered',
+        title: 'New Player Registered',
+        description: `${player.name} joined as ${player.position}`,
+        timeAgo: getTimeAgo(player.createdAt),
+        timestamp: player.createdAt
+      });
+    });
 
     // Get recent team creations
-    if (type === 'all' || type === 'teams') {
-      try {
-        const recentTeams = await Team.find({
-          isActive: true,
-          createdAt: { $gte: fromDate }
-        })
-        .populate('league', 'name')
-        .sort({ createdAt: -1 })
-        .limit(parseInt(limit))
-        .lean();
+    const recentTeams = await Team.find({
+      league: league._id,
+      isActive: true,
+      createdAt: { $gte: fromDate }
+    })
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit))
+    .lean();
 
-        recentTeams.forEach(team => {
-          activities.push({
-            id: `team_${team._id}`,
-            type: 'team_created',
-            title: 'New Team Created',
-            description: `${team.name} joined the league`,
-            details: {
-              teamName: team.name,
-              league: team.league?.name,
-              shortName: team.shortName,
-              homeVenue: team.homeVenue
-            },
-            timestamp: team.createdAt,
-            icon: 'users',
-            color: 'blue'
-          });
+    recentTeams.forEach(team => {
+      activities.push({
+        id: `team_${team._id}`,
+        type: 'team_created',
+        title: 'New Team Added',
+        description: `${team.name} joined the league`,
+        timeAgo: getTimeAgo(team.createdAt),
+        timestamp: team.createdAt
+      });
+    });
+
+    // Get recent transfers (players with recent transfer history)
+    const recentTransfers = await Player.find({
+      league: league._id,
+      isActive: true,
+      'transferHistory.transferDate': { $gte: fromDate }
+    })
+    .populate('currentTeam', 'name')
+    .sort({ 'transferHistory.transferDate': -1 })
+    .limit(parseInt(limit))
+    .lean();
+
+    recentTransfers.forEach(player => {
+      const latestTransfer = player.transferHistory
+        .filter(t => new Date(t.transferDate) >= fromDate)
+        .sort((a, b) => new Date(b.transferDate) - new Date(a.transferDate))[0];
+
+      if (latestTransfer) {
+        let description;
+        switch (latestTransfer.transferType) {
+          case 'new_registration':
+            description = 'Registered to the league';
+            break;
+          case 'transfer':
+            description = player.currentTeam ? `Transferred to ${player.currentTeam.name}` : 'Released from team';
+            break;
+          case 'free_agent_signing':
+            description = player.currentTeam ? `Signed by ${player.currentTeam.name}` : 'Became free agent';
+            break;
+          case 'release':
+            description = 'Released to transfer market';
+            break;
+          default:
+            description = 'Transfer activity';
+        }
+
+        activities.push({
+          id: `transfer_${player._id}_${latestTransfer._id}`,
+          type: 'transfer',
+          title: 'Player Transfer',
+          description: `${player.name}: ${description}`,
+          timeAgo: getTimeAgo(latestTransfer.transferDate),
+          timestamp: latestTransfer.transferDate
         });
-      } catch (error) {
-        console.warn('Error fetching recent teams:', error);
-      }
-    }
-
-    // Get recent league creations
-    if (type === 'all' || type === 'leagues') {
-      try {
-        const recentLeagues = await League.find({
-          isActive: true,
-          createdAt: { $gte: fromDate }
-        })
-        .sort({ createdAt: -1 })
-        .limit(parseInt(limit))
-        .lean();
-
-        recentLeagues.forEach(league => {
-          activities.push({
-            id: `league_${league._id}`,
-            type: 'league_created',
-            title: 'New League Created',
-            description: `${league.name} league was established`,
-            details: {
-              leagueName: league.name,
-              type: league.type,
-              sport: league.sport,
-              season: league.season
-            },
-            timestamp: league.createdAt,
-            icon: 'trophy',
-            color: 'purple'
-          });
-        });
-      } catch (error) {
-        console.warn('Error fetching recent leagues:', error);
-      }
-    }
-
-    // Get recent transfers
-    if (type === 'all' || type === 'transfers') {
-      try {
-        const recentTransfers = await Transfer.find({
-          transferDate: { $gte: fromDate },
-          status: 'completed'
-        })
-        .populate('player', 'name position')
-        .populate('fromTeam', 'name')
-        .populate('toTeam', 'name')
-        .populate('league', 'name')
-        .sort({ transferDate: -1 })
-        .limit(parseInt(limit))
-        .lean();
-
-        recentTransfers.forEach(transfer => {
-          let description;
-          if (!transfer.fromTeam && transfer.toTeam) {
-            description = `${transfer.player?.name} assigned to ${transfer.toTeam?.name}`;
-          } else if (transfer.fromTeam && !transfer.toTeam) {
-            description = `${transfer.player?.name} released from ${transfer.fromTeam?.name}`;
-          } else if (transfer.fromTeam && transfer.toTeam) {
-            description = `${transfer.player?.name} transferred from ${transfer.fromTeam?.name} to ${transfer.toTeam?.name}`;
-          } else {
-            description = `${transfer.player?.name} transfer processed`;
-          }
-
-          activities.push({
-            id: `transfer_${transfer._id}`,
-            type: 'player_transfer',
-            title: 'Player Transfer',
-            description,
-            details: {
-              playerName: transfer.player?.name,
-              position: transfer.player?.position,
-              fromTeam: transfer.fromTeam?.name,
-              toTeam: transfer.toTeam?.name,
-              league: transfer.league?.name,
-              transferType: transfer.transferType,
-              transferFee: transfer.transferFee
-            },
-            timestamp: transfer.transferDate,
-            icon: 'arrow-right-left',
-            color: 'orange'
-          });
-        });
-      } catch (error) {
-        console.warn('Error fetching recent transfers:', error);
-      }
-    }
-
-    // Sort all activities by timestamp (most recent first)
-    activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-    // Limit the final results
-    const limitedActivities = activities.slice(0, parseInt(limit));
-
-    console.log(`✅ Found ${limitedActivities.length} recent activities`);
-
-    return res.status(200).json({
-      success: true,
-      count: limitedActivities.length,
-      data: limitedActivities,
-      activities: limitedActivities, // backward compatibility
-      filters: {
-        limit: parseInt(limit),
-        days: parseInt(days),
-        type,
-        fromDate: fromDate.toISOString()
       }
     });
 
+    // Sort all activities by timestamp and limit
+    const sortedActivities = activities
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .slice(0, parseInt(limit));
+
+    return res.status(200).json({
+      success: true,
+      data: sortedActivities
+    });
+
   } catch (error) {
-    console.error('❌ Error fetching recent activity:', error);
+    console.error('Error fetching recent activity:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch recent activity',
       error: error.message
     });
+  }
+}
+
+// Helper function to format time ago
+function getTimeAgo(date) {
+  const now = new Date();
+  const diffInSeconds = Math.floor((now - new Date(date)) / 1000);
+
+  if (diffInSeconds < 60) {
+    return `${diffInSeconds} seconds ago`;
+  } else if (diffInSeconds < 3600) {
+    const minutes = Math.floor(diffInSeconds / 60);
+    return `${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
+  } else if (diffInSeconds < 86400) {
+    const hours = Math.floor(diffInSeconds / 3600);
+    return `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+  } else if (diffInSeconds < 2592000) {
+    const days = Math.floor(diffInSeconds / 86400);
+    return `${days} day${days !== 1 ? 's' : ''} ago`;
+  } else {
+    return new Date(date).toLocaleDateString();
   }
 }

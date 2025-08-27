@@ -1,113 +1,108 @@
-// 4. pages/api/auth/login.js - Login endpoint
-// =====================================================
-
+// pages/api/auth/login.js - User Authentication
 import dbConnect from '../../../lib/mongodb';
-import Admin from '../../../models/Admin';
-import { generateAccessToken, generateRefreshToken, comparePassword } from '../../../lib/auth';
-import { rateLimiter } from '../../../middleware/rateLimiter';
+import User from '../../../models/User';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
-const loginHandler = async (req, res) => {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ success: false, message: 'Method not allowed' });
+export default async function handler(req, res) {
+  const { method } = req;
+
+  console.log(`🔐 Auth Login API: ${method} /api/auth/login`);
+
+  if (method !== 'POST') {
+    return res.status(405).json({
+      success: false,
+      message: `Method ${method} not allowed`
+    });
   }
 
   try {
     await dbConnect();
+  } catch (error) {
+    console.error('Database connection failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Database connection failed'
+    });
+  }
 
-    const { email, password } = req.body;
+  try {
+    const { username, password } = req.body;
 
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Email and password are required' 
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username and password are required'
       });
     }
 
-    // Find admin with password field
-    const admin = await Admin.findOne({ email }).select('+password');
-    
-    if (!admin) {
-      // Don't reveal if email exists
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
+    console.log(`🔍 Login attempt for username: ${username}`);
+
+    // Find user by username or email
+    const user = await User.findOne({
+      $or: [
+        { username: username.toLowerCase() },
+        { email: username.toLowerCase() }
+      ],
+      isActive: true
+    });
+
+    if (!user) {
+      console.log('❌ User not found');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
       });
     }
 
-    // Check if active
-    if (!admin.isActive) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Account is deactivated. Please contact administrator.' 
+    // Check password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+
+    if (!isValidPassword) {
+      console.log('❌ Invalid password');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password'
       });
     }
 
-    // Verify password
-    const isPasswordValid = await comparePassword(password, admin.password);
-    
-    if (!isPasswordValid) {
-      // Track failed login attempts
-      admin.failedLoginAttempts = (admin.failedLoginAttempts || 0) + 1;
-      
-      // Lock account after 5 failed attempts
-      if (admin.failedLoginAttempts >= 5) {
-        admin.isActive = false;
-        admin.lockedUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
-      }
-      
-      await admin.save();
-      
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid credentials' 
-      });
-    }
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        id: user._id, 
+        username: user.username,
+        role: user.role 
+      },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '24h' }
+    );
 
-    // Reset failed login attempts
-    admin.failedLoginAttempts = 0;
-    admin.lastLogin = new Date();
-    await admin.save();
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
 
-    // Generate tokens
-    const tokenPayload = {
-      id: admin._id,
-      email: admin.email,
-      role: admin.role
-    };
-    
-    const accessToken = generateAccessToken(tokenPayload);
-    const refreshToken = generateRefreshToken(tokenPayload);
+    console.log(`✅ Login successful for: ${user.username} (${user.role})`);
 
-    // Remove password from response
-    const adminData = admin.toObject();
-    delete adminData.password;
-
-    // Set secure cookie
-    res.setHeader('Set-Cookie', [
-      `token=${accessToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${7 * 24 * 60 * 60}`,
-      `refreshToken=${refreshToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${30 * 24 * 60 * 60}`
-    ]);
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      accessToken,
-      refreshToken,
-      admin: adminData
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        lastLogin: user.lastLogin
+      }
     });
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Login failed' 
+    return res.status(500).json({
+      success: false,
+      message: 'Login failed',
+      error: error.message
     });
   }
-};
-
-// Apply rate limiting: max 5 login attempts per 15 minutes
-export default rateLimiter({ 
-  maxRequests: 5, 
-  windowMs: 15 * 60 * 1000,
-  message: 'Too many login attempts. Please try again later.'
-})(loginHandler);
+}
