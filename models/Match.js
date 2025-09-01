@@ -1,88 +1,99 @@
+// ===========================================
+// FILE: models/Match.js (UPDATED WITH LIVE DATA)
+// ===========================================
 import mongoose from 'mongoose';
 
-const MatchEventSchema = new mongoose.Schema({
-  type: {
-    type: String,
-    enum: ['goal', 'yellow_card', 'red_card', 'substitution'],
-    required: true,
+const eventSchema = new mongoose.Schema({
+  id: { type: Number, required: true },
+  type: { 
+    type: String, 
+    enum: ['goal', 'yellow_card', 'red_card', 'substitution', 'other'],
+    required: true 
   },
-  player: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Player',
-    required: true,
+  team: { 
+    type: String, 
+    enum: ['home', 'away'],
+    required: true 
   },
-  team: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Team',
-    required: true,
-  },
-  minute: {
-    type: Number,
-    required: true,
-  },
-  description: {
-    type: String,
-    default: '',
-  }
-});
+  minute: { type: Number, required: true },
+  player: { type: mongoose.Schema.Types.ObjectId, ref: 'Player' },
+  description: { type: String, required: true }
+}, { _id: false });
 
-const MatchSchema = new mongoose.Schema({
-  homeTeam: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Team',
-    required: true,
+const liveDataSchema = new mongoose.Schema({
+  currentMinute: { type: Number, default: 0 },
+  events: [eventSchema],
+  isLive: { type: Boolean, default: false },
+  startedAt: { type: Date },
+  pausedAt: { type: Date },
+  endedAt: { type: Date }
+}, { _id: false });
+
+const matchSchema = new mongoose.Schema({
+  homeTeam: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Team', 
+    required: true 
   },
-  awayTeam: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Team',
-    required: true,
+  awayTeam: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Team', 
+    required: true 
   },
-  season: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Season',
-    required: true,
+  matchDate: { 
+    type: Date, 
+    required: true 
   },
-  matchDate: {
-    type: Date,
-    required: true,
+  season: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Season', 
+    required: true 
   },
-  venue: {
-    type: String,
-    default: '',
+  venue: { 
+    type: String, 
+    default: '' 
   },
-  round: {
-    type: String,
-    default: 'Regular Season',
+  round: { 
+    type: String, 
+    default: 'Regular Season' 
+  },
+  referee: { 
+    type: String, 
+    default: '' 
   },
   status: {
     type: String,
     enum: ['scheduled', 'live', 'completed', 'postponed', 'cancelled'],
-    default: 'scheduled',
+    default: 'scheduled'
   },
-  homeScore: {
-    type: Number,
-    default: 0,
+  homeScore: { 
+    type: Number, 
+    default: 0 
   },
-  awayScore: {
-    type: Number,
-    default: 0,
+  awayScore: { 
+    type: Number, 
+    default: 0 
   },
-  events: [MatchEventSchema],
   liveData: {
-    currentMinute: { type: Number, default: 0 },
-    isLive: { type: Boolean, default: false },
-    lastUpdate: { type: Date, default: Date.now },
+    type: liveDataSchema,
+    default: () => ({})
   },
-  referee: {
-    type: String,
-    default: '',
-  },
-  notes: {
-    type: String,
-    default: '',
+  notes: { 
+    type: String, 
+    default: '' 
   }
 }, {
-  timestamps: true,
+  timestamps: true
 });
 
-export default mongoose.models.Match || mongoose.model('Match', MatchSchema);
+// Indexes for better query performance
+matchSchema.index({ season: 1, matchDate: 1 });
+matchSchema.index({ status: 1 });
+matchSchema.index({ homeTeam: 1, awayTeam: 1 });
+
+// Virtual for match display name
+matchSchema.virtual('displayName').get(function() {
+  return `${this.homeTeam?.name || 'TBD'} vs ${this.awayTeam?.name || 'TBD'}`;
+});
+
+export default mongoose.models.Match || mongoose.model('Match', matchSchema);
