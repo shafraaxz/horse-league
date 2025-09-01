@@ -85,12 +85,13 @@ export default async function handler(req, res) {
       // Prepare clean player data matching Player model schema
       const cleanPlayerData = {
         name: playerData.name.trim(),
+        idCardNumber: playerData.idCardNumber ? playerData.idCardNumber.trim() : undefined, // Private SKU
         email: playerData.email || undefined, // Optional field
         phone: playerData.phone || undefined,
         dateOfBirth: playerData.dateOfBirth || null,
         nationality: playerData.nationality || '',
         position: playerData.position || undefined, // Optional in futsal model
-        jerseyNumber: playerData.jerseyNumber ? parseInt(playerData.jerseyNumber) : undefined,
+        jerseyNumber: playerData.jerseyNumber ? parseInt(playerData.jerseyNumber) : undefined, // Fixed: undefined instead of null
         height: playerData.height ? parseFloat(playerData.height) : undefined,
         weight: playerData.weight ? parseFloat(playerData.weight) : undefined,
         photo: photoUrl, // Store as string URL
@@ -132,6 +133,13 @@ export default async function handler(req, res) {
         notes: playerData.notes || ''
       };
       
+      // Remove undefined values to prevent MongoDB issues
+      Object.keys(cleanPlayerData).forEach(key => {
+        if (cleanPlayerData[key] === undefined) {
+          delete cleanPlayerData[key];
+        }
+      });
+      
       console.log('Clean player data:', JSON.stringify(cleanPlayerData, null, 2));
       
       // Validate team exists if provided
@@ -146,7 +154,7 @@ export default async function handler(req, res) {
         }
       }
       
-      // Check for duplicate jersey number in the same team
+      // Check for duplicate jersey number in the same team (only if both team and jersey exist)
       if (cleanPlayerData.currentTeam && cleanPlayerData.jerseyNumber) {
         const existingPlayer = await Player.findOne({
           currentTeam: cleanPlayerData.currentTeam,
@@ -157,6 +165,19 @@ export default async function handler(req, res) {
         if (existingPlayer) {
           return res.status(400).json({ 
             message: `Jersey number ${cleanPlayerData.jerseyNumber} is already taken by another player in this team` 
+          });
+        }
+      }
+      
+      // Check for duplicate ID card number
+      if (cleanPlayerData.idCardNumber) {
+        const existingPlayer = await Player.findOne({
+          idCardNumber: cleanPlayerData.idCardNumber
+        });
+        
+        if (existingPlayer) {
+          return res.status(400).json({ 
+            message: 'A player with this ID card number already exists' 
           });
         }
       }
