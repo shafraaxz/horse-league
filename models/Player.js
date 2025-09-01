@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: models/Player.js (UPDATED WITH STATISTICS)
+// FILE: models/Player.js (UPDATED FOR FUTSAL - POSITION OPTIONAL)
 // ===========================================
 import mongoose from 'mongoose';
 
@@ -82,11 +82,14 @@ const playerSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
+  
+  // FUTSAL: Position is optional since players can play multiple roles
   position: { 
     type: String, 
-    enum: ['Goalkeeper', 'Defender', 'Midfielder', 'Forward'],
-    required: true 
+    enum: ['Goalkeeper', 'Outfield Player'],
+    // No required: true - makes it optional for futsal
   },
+  
   jerseyNumber: { 
     type: Number,
     min: 1,
@@ -99,7 +102,7 @@ const playerSchema = new mongoose.Schema({
     type: Number // in kg
   },
   photo: { 
-    type: String // Cloudinary URL
+    type: String // Cloudinary URL or direct URL string
   },
   currentTeam: { 
     type: mongoose.Schema.Types.ObjectId, 
@@ -156,10 +159,14 @@ const playerSchema = new mongoose.Schema({
 // Indexes for better performance
 playerSchema.index({ currentTeam: 1, status: 1 });
 playerSchema.index({ email: 1 }, { sparse: true });
+playerSchema.index({ name: 1 });
 playerSchema.index({ 'currentTeam': 1, 'jerseyNumber': 1 }, { 
   unique: true, 
   sparse: true,
-  partialFilterExpression: { jerseyNumber: { $exists: true } }
+  partialFilterExpression: { 
+    jerseyNumber: { $exists: true },
+    currentTeam: { $exists: true }
+  }
 });
 
 // Virtual for age calculation
@@ -179,7 +186,6 @@ playerSchema.virtual('age').get(function() {
 playerSchema.virtual('currentSeasonStats').get(function() {
   if (!this.seasonStats || this.seasonStats.size === 0) return null;
   
-  // Get the most recent season stats (you might want to get active season instead)
   const seasons = Array.from(this.seasonStats.keys());
   const latestSeason = seasons[seasons.length - 1];
   return this.seasonStats.get(latestSeason);
@@ -202,7 +208,6 @@ playerSchema.methods.addTransfer = function(transferData) {
   this.currentTeam = transferData.toTeam;
   
   // Update current team history
-  // Close previous team record
   if (this.currentTeamHistory.length > 0) {
     const lastRecord = this.currentTeamHistory[this.currentTeamHistory.length - 1];
     if (lastRecord.isActive) {
