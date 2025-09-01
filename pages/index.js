@@ -1,4 +1,4 @@
-// FILE: pages/index.js (Updated with fixed Image import)
+// FILE: pages/index.js (Fixed with correct player name fields)
 // ===========================================
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -26,30 +26,72 @@ export default function Home() {
     try {
       // Fetch live match
       const liveResponse = await fetch('/api/public/matches?status=live');
-      const liveData = await liveResponse.json();
-      if (liveData.length > 0) {
-        setLiveMatch(liveData[0]);
+      if (liveResponse.ok) {
+        const liveData = await liveResponse.json();
+        if (Array.isArray(liveData) && liveData.length > 0) {
+          setLiveMatch(liveData[0]);
+        }
       }
 
       // Fetch recent transfers
       const transfersResponse = await fetch('/api/public/transfers?limit=5');
-      const transfersData = await transfersResponse.json();
-      setRecentTransfers(transfersData);
+      if (transfersResponse.ok) {
+        const transfersData = await transfersResponse.json();
+        setRecentTransfers(Array.isArray(transfersData) ? transfersData : []);
+      }
 
-      // Fetch standings
+      // Fetch standings - using teams API as fallback
       const standingsResponse = await fetch('/api/public/standings?limit=5');
-      const standingsData = await standingsResponse.json();
-      setStandings(standingsData);
+      if (standingsResponse.ok) {
+        const standingsData = await standingsResponse.json();
+        setStandings(Array.isArray(standingsData) ? standingsData : []);
+      } else {
+        // Fallback to teams data
+        const teamsResponse = await fetch('/api/public/teams?limit=5');
+        if (teamsResponse.ok) {
+          const teamsData = await teamsResponse.json();
+          setStandings(Array.isArray(teamsData) ? teamsData : []);
+        }
+      }
 
       // Fetch upcoming matches
       const matchesResponse = await fetch('/api/public/matches?status=scheduled&limit=3');
-      const matchesData = await matchesResponse.json();
-      setUpcomingMatches(matchesData);
+      if (matchesResponse.ok) {
+        const matchesData = await matchesResponse.json();
+        setUpcomingMatches(Array.isArray(matchesData) ? matchesData : []);
+      }
 
       // Fetch statistics
       const statsResponse = await fetch('/api/public/stats');
-      const statsData = await statsResponse.json();
-      setStats(statsData);
+      if (statsResponse.ok) {
+        const statsData = await statsResponse.json();
+        setStats({
+          totalTeams: statsData.totalTeams || 0,
+          totalPlayers: statsData.totalPlayers || 0,
+          totalMatches: statsData.totalMatches || 0,
+          totalGoals: statsData.totalGoals || 0,
+        });
+      } else {
+        // Fallback stats calculation
+        const [teamsRes, playersRes] = await Promise.all([
+          fetch('/api/public/teams'),
+          fetch('/api/public/players')
+        ]);
+        
+        if (teamsRes.ok && playersRes.ok) {
+          const [teams, players] = await Promise.all([
+            teamsRes.json(),
+            playersRes.json()
+          ]);
+          
+          setStats({
+            totalTeams: Array.isArray(teams) ? teams.length : 0,
+            totalPlayers: Array.isArray(players) ? players.length : 0,
+            totalMatches: 0,
+            totalGoals: Array.isArray(players) ? players.reduce((sum, p) => sum + (p.stats?.goals || 0), 0) : 0,
+          });
+        }
+      }
     } catch (error) {
       console.error('Error fetching home data:', error);
     }
@@ -126,7 +168,7 @@ export default function Home() {
                 <span className="text-red-600 font-semibold">LIVE</span>
               </div>
               <div className="text-lg font-semibold">
-                {liveMatch.homeTeam.name} {liveMatch.homeScore} - {liveMatch.awayScore} {liveMatch.awayTeam.name}
+                {liveMatch.homeTeam?.name || 'Team A'} {liveMatch.homeScore || 0} - {liveMatch.awayScore || 0} {liveMatch.awayTeam?.name || 'Team B'}
               </div>
             </div>
             <Link
@@ -174,23 +216,26 @@ export default function Home() {
             </Link>
           </div>
           <div className="space-y-3">
-            {standings.map((team, index) => (
+            {standings.slice(0, 5).map((team, index) => (
               <div key={team._id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
                 <div className="flex items-center space-x-3">
                   <span className="font-semibold text-gray-600 w-6">{index + 1}</span>
                   <div>
                     <p className="font-medium">{team.name}</p>
                     <p className="text-sm text-gray-600">
-                      {team.stats.wins}W {team.stats.draws}D {team.stats.losses}L
+                      {team.stats?.wins || 0}W {team.stats?.draws || 0}D {team.stats?.losses || 0}L
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold">{team.stats.points}</p>
+                  <p className="font-bold">{team.stats?.points || 0}</p>
                   <p className="text-sm text-gray-600">pts</p>
                 </div>
               </div>
             ))}
+            {standings.length === 0 && (
+              <p className="text-gray-500 text-center py-4">No standings data available</p>
+            )}
           </div>
         </div>
 
@@ -214,12 +259,15 @@ export default function Home() {
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="font-medium">{match.homeTeam.name}</span>
+                  <span className="font-medium">{match.homeTeam?.name || 'TBD'}</span>
                   <span className="text-gray-600">vs</span>
-                  <span className="font-medium">{match.awayTeam.name}</span>
+                  <span className="font-medium">{match.awayTeam?.name || 'TBD'}</span>
                 </div>
               </div>
             ))}
+            {upcomingMatches.length === 0 && (
+              <p className="text-gray-500 text-center py-4">No upcoming matches</p>
+            )}
           </div>
         </div>
 
@@ -235,17 +283,20 @@ export default function Home() {
             {recentTransfers.map((transfer) => (
               <div key={transfer._id} className="border-l-4 border-blue-500 pl-4">
                 <p className="font-medium">
-                  {transfer.player.firstName} {transfer.player.lastName}
+                  {transfer.player?.name || 'Unknown Player'}
                 </p>
                 <p className="text-sm text-gray-600">
                   {transfer.fromTeam ? `${transfer.fromTeam.name} → ` : 'New signing → '}
-                  {transfer.toTeam.name}
+                  {transfer.toTeam?.name || 'Unknown Team'}
                 </p>
                 <p className="text-xs text-gray-500">
                   {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
                 </p>
               </div>
             ))}
+            {recentTransfers.length === 0 && (
+              <p className="text-gray-500 text-center py-4">No recent transfers</p>
+            )}
           </div>
         </div>
       </div>
