@@ -21,17 +21,21 @@ export default async function handler(req, res) {
     if (seasonId && seasonId !== 'all') {
       const teams = await Team.find({ season: seasonId }).select('_id');
       const teamIds = teams.map(team => team._id);
+      console.log(`Season ${seasonId} has teams:`, teamIds);
+      
       if (teamIds.length > 0) {
         query.currentTeam = { $in: teamIds };
       } else {
-        // No teams in this season, return empty array
-        return res.status(200).json([]);
+        // No teams in this season, but still show players without teams
+        console.log('No teams found for season, showing free agents only');
+        query.currentTeam = null;
       }
     }
     
     // Filter by team
     if (teamId && teamId !== 'all') {
       query.currentTeam = teamId;
+      console.log('Filtering by team:', teamId);
     }
     
     // Search by name
