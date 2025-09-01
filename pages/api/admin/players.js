@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/admin/players.js (FIXED WITH CORS & AUTH)
+// FILE: pages/api/admin/players.js (FIXED - POSITION OPTIONAL)
 // ===========================================
 import connectDB from '../../../lib/mongodb';
 import Player from '../../../models/Player';
@@ -88,16 +88,31 @@ export default async function handler(req, res) {
           const playerData = req.body;
           console.log('Creating player:', playerData.name);
 
-          // Validate required fields
-          if (!playerData.name || !playerData.position) {
+          // FIXED: Only validate name is required (no position required for futsal)
+          if (!playerData.name || !playerData.name.trim()) {
             return res.status(400).json({ 
-              message: 'Name and position are required' 
+              message: 'Player name is required' 
             });
+          }
+
+          // Validate jersey number uniqueness if provided and team assigned
+          if (playerData.jerseyNumber && playerData.currentTeam) {
+            const existingPlayer = await Player.findOne({
+              currentTeam: playerData.currentTeam,
+              jerseyNumber: playerData.jerseyNumber,
+              status: { $in: ['active', 'injured', 'suspended'] }
+            });
+
+            if (existingPlayer) {
+              return res.status(400).json({
+                message: `Jersey number ${playerData.jerseyNumber} is already taken in this team`
+              });
+            }
           }
 
           const player = new Player({
             ...playerData,
-            status: 'active'
+            status: playerData.status || 'active'
           });
 
           await player.save();
@@ -111,6 +126,21 @@ export default async function handler(req, res) {
           
         } catch (error) {
           console.error('Error creating player:', error);
+          
+          // Handle duplicate jersey number error
+          if (error.code === 'DUPLICATE_JERSEY') {
+            return res.status(400).json({ message: error.message });
+          }
+          
+          // Handle mongoose validation errors
+          if (error.name === 'ValidationError') {
+            const errors = Object.values(error.errors).map(e => e.message);
+            return res.status(400).json({ 
+              message: 'Validation failed', 
+              details: errors 
+            });
+          }
+          
           return res.status(500).json({ 
             message: 'Failed to create player',
             error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
@@ -124,6 +154,27 @@ export default async function handler(req, res) {
 
           if (!id) {
             return res.status(400).json({ message: 'Player ID is required' });
+          }
+
+          // Validate name if provided
+          if (updateData.name !== undefined && (!updateData.name || !updateData.name.trim())) {
+            return res.status(400).json({ message: 'Player name cannot be empty' });
+          }
+
+          // Validate jersey number uniqueness if being updated
+          if (updateData.jerseyNumber && updateData.currentTeam) {
+            const existingPlayer = await Player.findOne({
+              currentTeam: updateData.currentTeam,
+              jerseyNumber: updateData.jerseyNumber,
+              _id: { $ne: id },
+              status: { $in: ['active', 'injured', 'suspended'] }
+            });
+
+            if (existingPlayer) {
+              return res.status(400).json({
+                message: `Jersey number ${updateData.jerseyNumber} is already taken in this team`
+              });
+            }
           }
 
           const player = await Player.findByIdAndUpdate(
@@ -141,6 +192,21 @@ export default async function handler(req, res) {
           
         } catch (error) {
           console.error('Error updating player:', error);
+          
+          // Handle duplicate jersey number error
+          if (error.code === 'DUPLICATE_JERSEY') {
+            return res.status(400).json({ message: error.message });
+          }
+          
+          // Handle mongoose validation errors
+          if (error.name === 'ValidationError') {
+            const errors = Object.values(error.errors).map(e => e.message);
+            return res.status(400).json({ 
+              message: 'Validation failed', 
+              details: errors 
+            });
+          }
+          
           return res.status(500).json({ 
             message: 'Failed to update player',
             error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
