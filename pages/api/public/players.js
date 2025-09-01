@@ -45,17 +45,17 @@ export default async function handler(req, res) {
       .sort({ name: 1 })
       .lean();
 
-    // Transform data for public consumption
+    // Transform data for public consumption - MATCH FRONTEND EXPECTATIONS
     const publicPlayers = players.map(player => ({
       _id: player._id,
-      name: player.name,
+      name: player.name, // Use single name field
       position: player.position,
       jerseyNumber: player.jerseyNumber,
       dateOfBirth: player.dateOfBirth,
       nationality: player.nationality,
       height: player.height,
       weight: player.weight,
-      photo: player.photo,
+      photo: player.photo, // Keep as string URL for consistency
       currentTeam: player.currentTeam,
       status: player.status,
       careerStats: player.careerStats || {
@@ -66,7 +66,7 @@ export default async function handler(req, res) {
         redCards: 0,
         minutesPlayed: 0
       },
-      // Add computed stats for display
+      // Add computed stats for display - MATCH PUBLIC PAGE EXPECTATIONS
       stats: {
         goals: player.careerStats?.goals || 0,
         assists: player.careerStats?.assists || 0,
