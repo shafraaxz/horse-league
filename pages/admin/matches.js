@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/admin/matches.js
+// FILE: pages/admin/matches.js (FIXED WITH ERROR HANDLING)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
@@ -13,9 +13,9 @@ import { format } from 'date-fns';
 export default function AdminMatches() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [matches, setMatches] = useState([]);
-  const [teams, setTeams] = useState([]);
-  const [seasons, setSeasons] = useState([]);
+  const [matches, setMatches] = useState([]); // Initialize as empty array
+  const [teams, setTeams] = useState([]); // Initialize as empty array
+  const [seasons, setSeasons] = useState([]); // Initialize as empty array
   const [selectedSeason, setSelectedSeason] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
@@ -25,10 +25,17 @@ export default function AdminMatches() {
 
   useEffect(() => {
     if (status === 'loading') return;
-    if (!session || session.user.role !== 'admin') {
+    
+    if (!session) {
+      router.push('/login');
+      return;
+    }
+    
+    if (session.user.role !== 'admin') {
       router.push('/');
       return;
     }
+    
     fetchSeasons();
   }, [session, status, router]);
 
@@ -42,16 +49,31 @@ export default function AdminMatches() {
   const fetchSeasons = async () => {
     try {
       const response = await fetch('/api/admin/seasons');
-      const data = await response.json();
-      setSeasons(data);
       
-      const activeSeason = data.find(s => s.isActive);
-      if (activeSeason) {
-        setSelectedSeason(activeSeason._id);
-      } else if (data.length > 0) {
-        setSelectedSeason(data[0]._id);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Ensure data is an array
+      if (Array.isArray(data)) {
+        setSeasons(data);
+        
+        const activeSeason = data.find(s => s.isActive);
+        if (activeSeason) {
+          setSelectedSeason(activeSeason._id);
+        } else if (data.length > 0) {
+          setSelectedSeason(data[0]._id);
+        }
+      } else {
+        console.error('Seasons data is not an array:', data);
+        setSeasons([]);
+        toast.error(data.message || 'Failed to fetch seasons');
       }
     } catch (error) {
+      console.error('Error fetching seasons:', error);
+      setSeasons([]);
       toast.error('Failed to fetch seasons');
     }
   };
@@ -59,9 +81,24 @@ export default function AdminMatches() {
   const fetchTeams = async () => {
     try {
       const response = await fetch(`/api/admin/teams?seasonId=${selectedSeason}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
-      setTeams(data);
+      
+      // Ensure data is an array
+      if (Array.isArray(data)) {
+        setTeams(data);
+      } else {
+        console.error('Teams data is not an array:', data);
+        setTeams([]);
+        toast.error(data.message || 'Failed to fetch teams');
+      }
     } catch (error) {
+      console.error('Error fetching teams:', error);
+      setTeams([]);
       toast.error('Failed to fetch teams');
     }
   };
@@ -73,9 +110,24 @@ export default function AdminMatches() {
       if (statusFilter !== 'all') url += `&status=${statusFilter}`;
       
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const data = await response.json();
-      setMatches(data);
+      
+      // Ensure data is an array
+      if (Array.isArray(data)) {
+        setMatches(data);
+      } else {
+        console.error('Matches data is not an array:', data);
+        setMatches([]);
+        toast.error(data.message || 'Failed to fetch matches');
+      }
     } catch (error) {
+      console.error('Error fetching matches:', error);
+      setMatches([]);
       toast.error('Failed to fetch matches');
     } finally {
       setIsLoading(false);
@@ -104,9 +156,11 @@ export default function AdminMatches() {
         toast.success('Match deleted successfully');
         fetchMatches();
       } else {
-        toast.error('Failed to delete match');
+        const data = await response.json();
+        toast.error(data.message || 'Failed to delete match');
       }
     } catch (error) {
+      console.error('Error deleting match:', error);
       toast.error('Failed to delete match');
     }
   };
@@ -114,6 +168,11 @@ export default function AdminMatches() {
   const downloadSchedulePDF = async () => {
     try {
       const response = await fetch(`/api/schedule-pdf?seasonId=${selectedSeason}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -123,8 +182,10 @@ export default function AdminMatches() {
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
       toast.success('Schedule PDF downloaded');
     } catch (error) {
+      console.error('Error downloading PDF:', error);
       toast.error('Failed to download PDF');
     }
   };
@@ -168,7 +229,7 @@ export default function AdminMatches() {
             onChange={(e) => setSelectedSeason(e.target.value)}
             className="form-input w-48"
           >
-            {seasons.map(season => (
+            {Array.isArray(seasons) && seasons.map(season => (
               <option key={season._id} value={season._id}>
                 {season.name} {season.isActive && '(Active)'}
               </option>
@@ -210,25 +271,25 @@ export default function AdminMatches() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {matches.map((match) => (
+              {Array.isArray(matches) && matches.map((match) => (
                 <tr key={match._id}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
-                      {format(new Date(match.matchDate), 'MMM dd, yyyy')}
+                      {match.matchDate ? format(new Date(match.matchDate), 'MMM dd, yyyy') : 'No Date'}
                     </div>
                     <div className="text-sm text-gray-500">
-                      {format(new Date(match.matchDate), 'HH:mm')}
+                      {match.matchDate ? format(new Date(match.matchDate), 'HH:mm') : ''}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
-                      {match.homeTeam.name} vs {match.awayTeam.name}
+                      {match.homeTeam?.name || 'Unknown'} vs {match.awayTeam?.name || 'Unknown'}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {match.status === 'completed' || match.status === 'live' ? (
                       <div className="text-sm font-bold text-gray-900">
-                        {match.homeScore} - {match.awayScore}
+                        {match.homeScore || 0} - {match.awayScore || 0}
                       </div>
                     ) : (
                       <div className="text-sm text-gray-500">-</div>
@@ -236,7 +297,7 @@ export default function AdminMatches() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(match.status)}`}>
-                      {match.status.charAt(0).toUpperCase() + match.status.slice(1)}
+                      {match.status ? match.status.charAt(0).toUpperCase() + match.status.slice(1) : 'Unknown'}
                       {match.status === 'live' && match.liveData?.currentMinute && (
                         <span className="ml-1">{match.liveData.currentMinute}'</span>
                       )}
@@ -246,12 +307,12 @@ export default function AdminMatches() {
                     <div className="text-sm text-gray-900">{match.venue || '-'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{match.round}</div>
+                    <div className="text-sm text-gray-900">{match.round || '-'}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     {match.status === 'scheduled' && (
                       <button
-                        onClick={() => router.push('/matches/live')}
+                        onClick={() => router.push(`/matches/live?matchId=${match._id}`)}
                         className="text-green-600 hover:text-green-900 mr-3"
                         title="Start Live Match"
                       >
@@ -277,7 +338,7 @@ export default function AdminMatches() {
           </table>
         </div>
 
-        {matches.length === 0 && (
+        {(!Array.isArray(matches) || matches.length === 0) && (
           <div className="text-center py-12">
             <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No matches found</h3>
@@ -344,6 +405,23 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Basic validation
+    if (!formData.homeTeam || !formData.awayTeam) {
+      toast.error('Please select both home and away teams');
+      return;
+    }
+    
+    if (formData.homeTeam === formData.awayTeam) {
+      toast.error('Home and away teams cannot be the same');
+      return;
+    }
+    
+    if (!formData.matchDate) {
+      toast.error('Please select match date and time');
+      return;
+    }
+    
     setIsSubmitting(true);
 
     try {
@@ -358,14 +436,16 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
         body: JSON.stringify(body),
       });
 
+      const data = await response.json();
+
       if (response.ok) {
         toast.success(match ? 'Match updated successfully' : 'Match created successfully');
         onSuccess();
       } else {
-        const data = await response.json();
         toast.error(data.message || 'Operation failed');
       }
     } catch (error) {
+      console.error('Error submitting match:', error);
       toast.error('Operation failed');
     } finally {
       setIsSubmitting(false);
@@ -384,7 +464,7 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
             required
           >
             <option value="">Select Home Team</option>
-            {teams.map(team => (
+            {Array.isArray(teams) && teams.map(team => (
               <option key={team._id} value={team._id}>
                 {team.name}
               </option>
@@ -401,7 +481,7 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
             required
           >
             <option value="">Select Away Team</option>
-            {teams.filter(team => team._id !== formData.homeTeam).map(team => (
+            {Array.isArray(teams) && teams.filter(team => team._id !== formData.homeTeam).map(team => (
               <option key={team._id} value={team._id}>
                 {team.name}
               </option>
@@ -509,7 +589,7 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
           onChange={(e) => setFormData({ ...formData, season: e.target.value })}
           required
         >
-          {seasons.map(season => (
+          {Array.isArray(seasons) && seasons.map(season => (
             <option key={season._id} value={season._id}>
               {season.name} {season.isActive && '(Active)'}
             </option>
@@ -566,7 +646,7 @@ function ImportMatchesForm({ onClose, onSuccess }) {
       const data = await response.json();
 
       if (response.ok) {
-        toast.success(data.message);
+        toast.success(data.message || 'Import completed successfully');
         if (data.errors && data.errors.length > 0) {
           console.warn('Import errors:', data.errors);
           toast.error(`${data.errors.length} rows had errors`);
@@ -576,6 +656,7 @@ function ImportMatchesForm({ onClose, onSuccess }) {
         toast.error(data.message || 'Import failed');
       }
     } catch (error) {
+      console.error('Error importing CSV:', error);
       toast.error('Import failed');
     } finally {
       setIsUploading(false);
@@ -583,10 +664,15 @@ function ImportMatchesForm({ onClose, onSuccess }) {
   };
 
   const downloadTemplate = () => {
-    const link = document.createElement('a');
-    link.href = '/templates/match-schedule-template.csv';
-    link.download = 'match-schedule-template.csv';
-    link.click();
+    try {
+      const link = document.createElement('a');
+      link.href = '/templates/match-schedule-template.csv';
+      link.download = 'match-schedule-template.csv';
+      link.click();
+    } catch (error) {
+      console.error('Error downloading template:', error);
+      toast.error('Failed to download template');
+    }
   };
 
   return (
