@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: models/Match.js (UPDATED WITH LIVE DATA)
+// FILE: models/Match.js (FIXED - Unified Structure)
 // ===========================================
 import mongoose from 'mongoose';
 
@@ -17,16 +17,18 @@ const eventSchema = new mongoose.Schema({
   },
   minute: { type: Number, required: true },
   player: { type: mongoose.Schema.Types.ObjectId, ref: 'Player' },
-  description: { type: String, required: true }
+  description: { type: String, required: true },
+  timestamp: { type: Date, default: Date.now }
 }, { _id: false });
 
 const liveDataSchema = new mongoose.Schema({
-  currentMinute: { type: Number, default: 0 },
-  events: [eventSchema],
+  currentMinute: { type: Number, default: 0, min: 0, max: 120 },
   isLive: { type: Boolean, default: false },
-  startedAt: { type: Date },
-  pausedAt: { type: Date },
-  endedAt: { type: Date }
+  startedAt: { type: Date, default: null },
+  pausedAt: { type: Date, default: null },
+  resumedAt: { type: Date, default: null },
+  endedAt: { type: Date, default: null },
+  lastUpdate: { type: Date, default: Date.now }
 }, { _id: false });
 
 const matchSchema = new mongoose.Schema({
@@ -68,16 +70,33 @@ const matchSchema = new mongoose.Schema({
   },
   homeScore: { 
     type: Number, 
-    default: 0 
+    default: 0,
+    min: 0
   },
   awayScore: { 
     type: Number, 
-    default: 0 
+    default: 0,
+    min: 0
   },
+  // Events stored at match level (not inside liveData)
+  events: [eventSchema],
+  
+  // Live match data
   liveData: {
     type: liveDataSchema,
-    default: () => ({})
+    default: () => ({
+      currentMinute: 0,
+      isLive: false,
+      lastUpdate: new Date()
+    })
   },
+  
+  // Track if team stats have been updated for this match
+  statsUpdated: {
+    type: Boolean,
+    default: false
+  },
+  
   notes: { 
     type: String, 
     default: '' 
@@ -89,7 +108,25 @@ const matchSchema = new mongoose.Schema({
 // Indexes for better query performance
 matchSchema.index({ season: 1, matchDate: 1 });
 matchSchema.index({ status: 1 });
+matchSchema.index({ 'liveData.isLive': 1 });
 matchSchema.index({ homeTeam: 1, awayTeam: 1 });
+
+// Validation to prevent team playing against itself
+matchSchema.pre('save', function(next) {
+  if (this.homeTeam && this.awayTeam && this.homeTeam.equals(this.awayTeam)) {
+    next(new Error('A team cannot play against itself'));
+  } else {
+    next();
+  }
+});
+
+// Update lastUpdate when liveData changes
+matchSchema.pre('save', function(next) {
+  if (this.isModified('liveData') && this.liveData) {
+    this.liveData.lastUpdate = new Date();
+  }
+  next();
+});
 
 // Virtual for match display name
 matchSchema.virtual('displayName').get(function() {

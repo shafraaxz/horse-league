@@ -1,6 +1,7 @@
 // ===========================================
-// FILE: pages/api/matches/live/score.js (UPDATED)
-// Update match score during live matches
+// FILE: pages/api/matches/live/control.js
+// Live match control API - Start/Stop/Pause matches
+// This replaces the existing live.js file
 // ===========================================
 import dbConnect from '../../../../lib/mongodb';
 import Match from '../../../../models/Match';
@@ -31,18 +32,20 @@ export default async function handler(req, res) {
       return res.status(403).json({ message: 'Admin access required' });
     }
 
-    const { matchId, homeScore, awayScore, currentMinute, event } = req.body;
+    const { matchId, action, currentMinute } = req.body;
 
     if (!matchId) {
       return res.status(400).json({ message: 'Match ID is required' });
     }
 
-    console.log(`Updating score: Match ${matchId} - ${homeScore}:${awayScore} (${currentMinute}')`);
+    if (!['start', 'pause', 'stop', 'resume'].includes(action)) {
+      return res.status(400).json({ message: 'Invalid action. Use: start, pause, stop, or resume' });
+    }
 
-    // Prepare update data
-    const updateData = {
-      homeScore: parseInt(homeScore) || 0,
-      awayScore: parseInt(awayScore) || 0,
+    console.log(`Live match control: ${action} for match ${matchId}`);
+
+    // Prepare update data based on action
+    let updateData = {
       'liveData.lastUpdate': new Date()
     };
 
@@ -51,17 +54,34 @@ export default async function handler(req, res) {
       updateData['liveData.currentMinute'] = currentMinute;
     }
 
-    // Add event to match events if provided
-    if (event && event.type) {
-      const match = await Match.findById(matchId);
-      if (match) {
-        const newEvent = {
-          ...event,
-          minute: currentMinute || match.liveData?.currentMinute || 0,
-          timestamp: new Date()
-        };
-        updateData.$push = { events: newEvent };
-      }
+    switch (action) {
+      case 'start':
+        updateData.status = 'live';
+        updateData['liveData.isLive'] = true;
+        updateData['liveData.startTime'] = new Date();
+        if (!updateData['liveData.currentMinute']) {
+          updateData['liveData.currentMinute'] = 0;
+        }
+        break;
+        
+      case 'pause':
+        updateData['liveData.isLive'] = false;
+        updateData['liveData.pausedAt'] = new Date();
+        break;
+        
+      case 'resume':
+        updateData['liveData.isLive'] = true;
+        updateData['liveData.resumedAt'] = new Date();
+        break;
+        
+      case 'stop':
+        updateData.status = 'completed';
+        updateData['liveData.isLive'] = false;
+        updateData['liveData.endTime'] = new Date();
+        if (!updateData['liveData.currentMinute']) {
+          updateData['liveData.currentMinute'] = 90; // Default full time
+        }
+        break;
     }
 
     // Update the match
@@ -77,19 +97,19 @@ export default async function handler(req, res) {
       return res.status(404).json({ message: 'Match not found' });
     }
 
-    console.log(`Score updated: ${match.homeTeam.name} ${homeScore}-${awayScore} ${match.awayTeam.name}`);
-
-    return res.status(200).json({ 
-      message: 'Score updated successfully', 
+    console.log(`Match ${action} successful: ${match.homeTeam.name} vs ${match.awayTeam.name}`);
+    
+    // Return success response
+    return res.status(200).json({
+      message: `Match ${action} successful`,
       match,
-      currentScore: `${homeScore}-${awayScore}`,
-      minute: currentMinute
+      liveData: match.liveData
     });
 
   } catch (error) {
-    console.error('Score update error:', error);
+    console.error(`Live match control error (${req.body?.action}):`, error);
     return res.status(500).json({ 
-      message: 'Failed to update score',
+      message: 'Failed to control live match',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }

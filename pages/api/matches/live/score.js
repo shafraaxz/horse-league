@@ -1,6 +1,5 @@
 // ===========================================
-// FILE: pages/api/matches/live/score.js (UPDATED)
-// Update match score during live matches
+// FILE: pages/api/matches/live/score.js (FIXED - Matches Your Model)
 // ===========================================
 import dbConnect from '../../../../lib/mongodb';
 import Match from '../../../../models/Match';
@@ -39,6 +38,12 @@ export default async function handler(req, res) {
 
     console.log(`Updating score: Match ${matchId} - ${homeScore}:${awayScore} (${currentMinute}')`);
 
+    // Get current match
+    const match = await Match.findById(matchId);
+    if (!match) {
+      return res.status(404).json({ message: 'Match not found' });
+    }
+
     // Prepare update data
     const updateData = {
       homeScore: parseInt(homeScore) || 0,
@@ -51,21 +56,24 @@ export default async function handler(req, res) {
       updateData['liveData.currentMinute'] = currentMinute;
     }
 
-    // Add event to match events if provided
+    // Add event if provided
     if (event && event.type) {
-      const match = await Match.findById(matchId);
-      if (match) {
-        const newEvent = {
-          ...event,
-          minute: currentMinute || match.liveData?.currentMinute || 0,
-          timestamp: new Date()
-        };
-        updateData.$push = { events: newEvent };
-      }
+      const eventData = {
+        id: match.events.length + 1,
+        type: event.type,
+        team: event.team || 'home',
+        minute: currentMinute || match.liveData?.currentMinute || 0,
+        player: event.player || null,
+        description: event.description || `${event.type} event`,
+        timestamp: new Date()
+      };
+
+      updateData.$push = { events: eventData };
+      console.log(`Adding event:`, eventData);
     }
 
     // Update the match
-    const match = await Match.findByIdAndUpdate(
+    const updatedMatch = await Match.findByIdAndUpdate(
       matchId,
       updateData,
       { new: true, runValidators: true }
@@ -73,17 +81,17 @@ export default async function handler(req, res) {
      .populate('awayTeam', 'name logo')
      .populate('season', 'name');
 
-    if (!match) {
-      return res.status(404).json({ message: 'Match not found' });
+    if (!updatedMatch) {
+      return res.status(404).json({ message: 'Match not found after update' });
     }
 
-    console.log(`Score updated: ${match.homeTeam.name} ${homeScore}-${awayScore} ${match.awayTeam.name}`);
+    console.log(`Score updated successfully: ${updatedMatch.homeTeam.name} ${homeScore}-${awayScore} ${updatedMatch.awayTeam.name}`);
 
     return res.status(200).json({ 
       message: 'Score updated successfully', 
-      match,
+      match: updatedMatch,
       currentScore: `${homeScore}-${awayScore}`,
-      minute: currentMinute
+      minute: currentMinute || updatedMatch.liveData?.currentMinute || 0
     });
 
   } catch (error) {
