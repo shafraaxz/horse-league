@@ -663,12 +663,25 @@ function ImportMatchesForm({ onClose, onSuccess }) {
     }
   };
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
     try {
-      const link = document.createElement('a');
-      link.href = '/templates/match-schedule-template.csv';
-      link.download = 'match-schedule-template.csv';
-      link.click();
+      // Try API endpoint first, fallback to static file
+      const response = await fetch('/api/template/match-schedule');
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'match-schedule-template.csv';
+        link.click();
+        window.URL.revokeObjectURL(url);
+      } else {
+        // Fallback to static file
+        const link = document.createElement('a');
+        link.href = '/templates/match-schedule-template.csv';
+        link.download = 'match-schedule-template.csv';
+        link.click();
+      }
     } catch (error) {
       console.error('Error downloading template:', error);
       toast.error('Failed to download template');
