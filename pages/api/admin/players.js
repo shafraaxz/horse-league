@@ -82,36 +82,54 @@ export default async function handler(req, res) {
         }
       }
       
-      // Prepare clean player data
+      // Prepare clean player data matching Player model schema
       const cleanPlayerData = {
         name: playerData.name.trim(),
-        position: playerData.position || '',
-        jerseyNumber: playerData.jerseyNumber || null,
+        email: playerData.email || undefined, // Optional field
+        phone: playerData.phone || undefined,
         dateOfBirth: playerData.dateOfBirth || null,
         nationality: playerData.nationality || '',
-        height: playerData.height || null,
-        weight: playerData.weight || null,
+        position: playerData.position || undefined, // Optional in futsal model
+        jerseyNumber: playerData.jerseyNumber ? parseInt(playerData.jerseyNumber) : undefined,
+        height: playerData.height ? parseFloat(playerData.height) : undefined,
+        weight: playerData.weight ? parseFloat(playerData.weight) : undefined,
         photo: photoUrl, // Store as string URL
+        currentTeam: playerData.currentTeam || null,
+        status: playerData.status || 'active',
+        
+        // Emergency contact - exactly as model expects
         emergencyContact: {
           name: playerData.emergencyContact?.name || '',
           phone: playerData.emergencyContact?.phone || '',
           relationship: playerData.emergencyContact?.relationship || ''
         },
+        
+        // Medical info - match model structure (arrays for allergies/conditions)
         medicalInfo: {
-          allergies: playerData.medicalInfo?.allergies || '',
-          medications: playerData.medicalInfo?.medications || '',
-          conditions: playerData.medicalInfo?.conditions || ''
+          bloodType: playerData.medicalInfo?.bloodType || '',
+          allergies: Array.isArray(playerData.medicalInfo?.allergies) 
+            ? playerData.medicalInfo.allergies 
+            : (playerData.medicalInfo?.allergies ? [playerData.medicalInfo.allergies] : []),
+          conditions: Array.isArray(playerData.medicalInfo?.conditions) 
+            ? playerData.medicalInfo.conditions 
+            : (playerData.medicalInfo?.conditions ? [playerData.medicalInfo.conditions] : []),
+          notes: playerData.medicalInfo?.notes || ''
         },
-        currentTeam: playerData.currentTeam || null,
-        status: playerData.status || 'active',
-        registrationDate: playerData.registrationDate || new Date(),
+        
+        // Career stats - use model structure
         careerStats: {
+          appearances: 0,
           goals: 0,
           assists: 0,
-          matches: 0,
           yellowCards: 0,
-          redCards: 0
-        }
+          redCards: 0,
+          minutesPlayed: 0,
+          wins: 0,
+          losses: 0,
+          draws: 0
+        },
+        
+        notes: playerData.notes || ''
       };
       
       console.log('Clean player data:', JSON.stringify(cleanPlayerData, null, 2));
