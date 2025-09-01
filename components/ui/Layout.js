@@ -1,3 +1,5 @@
+// FILE: components/ui/Layout.js
+// ===========================================
 import { useSession } from 'next-auth/react';
 import Navbar from './Navbar';
 import LoadingSpinner from './LoadingSpinner';

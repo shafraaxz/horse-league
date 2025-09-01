@@ -1,3 +1,5 @@
+// FILE: pages/_app.js
+// ===========================================
 import { SessionProvider } from 'next-auth/react';
 import { Toaster } from 'react-hot-toast';
 import Layout from '../components/ui/Layout';

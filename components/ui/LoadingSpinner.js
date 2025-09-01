@@ -1,3 +1,5 @@
+// FILE: components/ui/LoadingSpinner.js
+// ===========================================
 export default function LoadingSpinner({ size = 'md' }) {
   const sizeClasses = {
     sm: 'h-4 w-4',

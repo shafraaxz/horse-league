@@ -1,5 +1,8 @@
+// FILE: pages/index.js (Updated with fixed Image import)
+// ===========================================
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import NextImage from 'next/image';
 import { Trophy, Users, Calendar, TrendingUp, Play } from 'lucide-react';
 import { format } from 'date-fns';
 
@@ -54,23 +57,63 @@ export default function Home() {
 
   return (
     <div className="space-y-8">
-      {/* Hero Section */}
-      <div className="text-center bg-gradient-to-r from-blue-600 to-blue-800 text-white rounded-lg p-12">
-        <h1 className="text-4xl md:text-6xl font-bold mb-4">
-          Horse Futsal Tournament
-        </h1>
-        <p className="text-xl md:text-2xl mb-8">
-          The Premier Futsal League Experience
-        </p>
-        {liveMatch && (
-          <Link
-            href="/matches/live"
-            className="inline-flex items-center bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg text-lg font-semibold transition-colors"
-          >
-            <Play className="w-5 h-5 mr-2" />
-            Watch Live Match
-          </Link>
-        )}
+      {/* Hero Section with Tournament Logo */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-blue-900 via-blue-800 to-purple-900 rounded-2xl">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 bg-black opacity-20"></div>
+        <div 
+          className="absolute inset-0" 
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='m36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
+          }}
+        ></div>
+        
+        <div className="relative px-6 py-16 sm:py-24 lg:py-32">
+          <div className="text-center">
+            {/* Main Tournament Logo */}
+            <div className="mb-8">
+              <NextImage
+                src="https://res.cloudinary.com/dq8lszs2o/image/upload/v1756292892/horse-futsal-league/banners/league-banner-1756292892007.png"
+                alt="Horse Futsal Tournament"
+                width={600}
+                height={200}
+                className="mx-auto max-w-full h-auto object-contain drop-shadow-2xl"
+                priority
+              />
+            </div>
+            
+            {/* Tagline */}
+            <p className="text-xl md:text-2xl text-blue-100 mb-8 font-light">
+              The Premier Futsal League Experience
+            </p>
+            
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+              {liveMatch && (
+                <Link
+                  href="/matches/live"
+                  className="inline-flex items-center bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-xl text-lg font-semibold transition-all duration-300 transform hover:scale-105 shadow-xl"
+                >
+                  <div className="w-3 h-3 bg-white rounded-full animate-pulse mr-3"></div>
+                  Watch Live Match
+                </Link>
+              )}
+              
+              <Link
+                href="/standings"
+                className="inline-flex items-center bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-4 rounded-xl text-lg font-semibold transition-all duration-300 border border-white/20 hover:border-white/40"
+              >
+                View League Table
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Decorative Elements */}
+        <div className="absolute top-4 left-4 w-20 h-20 border-2 border-white/20 rounded-full"></div>
+        <div className="absolute bottom-4 right-4 w-16 h-16 border-2 border-white/20 rounded-full"></div>
+        <div className="absolute top-1/2 left-8 w-2 h-2 bg-white/30 rounded-full"></div>
+        <div className="absolute top-1/4 right-12 w-3 h-3 bg-white/20 rounded-full"></div>
       </div>
 
       {/* Live Match Banner */}
