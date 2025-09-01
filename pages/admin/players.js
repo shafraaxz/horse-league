@@ -354,9 +354,11 @@ export default function AdminPlayers() {
 }
 
 // Player Form Component - Futsal Optimized
+// Player Form Component - Updated with ID Card Number
 function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
     name: player?.name || '',
+    idCardNumber: player?.idCardNumber || '', // Added ID card field
     email: player?.email || '',
     phone: player?.phone || '',
     dateOfBirth: player?.dateOfBirth ? player.dateOfBirth.split('T')[0] : '',
@@ -478,6 +480,22 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
         </div>
 
         <div className="form-group">
+          <label className="form-label">ID Card Number</label>
+          <input
+            type="text"
+            className="form-input"
+            value={formData.idCardNumber}
+            onChange={(e) => setFormData({ ...formData, idCardNumber: e.target.value })}
+            placeholder="National ID or passport number"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Private identifier - not shown to public
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="form-group">
           <label className="form-label">Jersey Number</label>
           <input
             type="number"
@@ -486,8 +504,24 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
             className="form-input"
             value={formData.jerseyNumber}
             onChange={(e) => setFormData({ ...formData, jerseyNumber: e.target.value })}
-            placeholder="1-99"
+            placeholder="1-99 (optional)"
           />
+          <p className="text-xs text-gray-500 mt-1">
+            Leave blank if no jersey assigned yet
+          </p>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Role (Optional)</label>
+          <select
+            className="form-input"
+            value={formData.position}
+            onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+          >
+            <option value="">No specific role</option>
+            <option value="Goalkeeper">Goalkeeper</option>
+            <option value="Outfield Player">Outfield Player</option>
+          </select>
         </div>
       </div>
 
@@ -565,15 +599,16 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
         </div>
 
         <div className="form-group">
-          <label className="form-label">Role (Optional)</label>
+          <label className="form-label">Status</label>
           <select
             className="form-input"
-            value={formData.position}
-            onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
           >
-            <option value="">No specific role</option>
-            <option value="Goalkeeper">Goalkeeper</option>
-            <option value="Outfield Player">Outfield Player</option>
+            <option value="active">Active</option>
+            <option value="injured">Injured</option>
+            <option value="suspended">Suspended</option>
+            <option value="inactive">Inactive</option>
           </select>
         </div>
       </div>
@@ -604,36 +639,23 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
       </div>
 
       {/* Team Assignment */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="form-group">
-          <label className="form-label">Team</label>
-          <select
-            className="form-input"
-            value={formData.currentTeam}
-            onChange={(e) => setFormData({ ...formData, currentTeam: e.target.value })}
-          >
-            <option value="">Free Agent</option>
-            {Array.isArray(teams) && teams.map(team => (
-              <option key={team._id} value={team._id}>
-                {team.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="form-group">
-          <label className="form-label">Status</label>
-          <select
-            className="form-input"
-            value={formData.status}
-            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-          >
-            <option value="active">Active</option>
-            <option value="injured">Injured</option>
-            <option value="suspended">Suspended</option>
-            <option value="inactive">Inactive</option>
-          </select>
-        </div>
+      <div className="form-group">
+        <label className="form-label">Team Assignment</label>
+        <select
+          className="form-input"
+          value={formData.currentTeam}
+          onChange={(e) => setFormData({ ...formData, currentTeam: e.target.value })}
+        >
+          <option value="">Free Agent (No team assigned)</option>
+          {Array.isArray(teams) && teams.map(team => (
+            <option key={team._id} value={team._id}>
+              {team.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-gray-500 mt-1">
+          Players can be registered without a team assignment
+        </p>
       </div>
 
       {/* Emergency Contact */}
