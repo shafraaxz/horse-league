@@ -173,20 +173,54 @@ export default function AdminMatches() {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = 'match-schedule.pdf';
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      toast.success('Schedule PDF downloaded');
+      const htmlContent = await response.text();
+      
+      // Create a new window/tab with the HTML content for printing
+      const printWindow = window.open('', '_blank');
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+      
+      // Add print functionality
+      printWindow.onload = () => {
+        // Add a print button and auto-focus for user convenience
+        const printButton = printWindow.document.createElement('button');
+        printButton.innerHTML = 'Print / Save as PDF';
+        printButton.style.cssText = `
+          position: fixed;
+          top: 10px;
+          right: 10px;
+          z-index: 1000;
+          padding: 10px 20px;
+          background: #3b82f6;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+          font-size: 14px;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        `;
+        printButton.onclick = () => {
+          printWindow.print();
+        };
+        printWindow.document.body.appendChild(printButton);
+        
+        // Instructions for saving as PDF
+        const instructions = printWindow.document.createElement('div');
+        instructions.innerHTML = `
+          <div style="position: fixed; top: 50px; right: 10px; background: #f3f4f6; padding: 10px; border-radius: 5px; font-size: 12px; max-width: 200px; z-index: 1000;">
+            <strong>Save as PDF:</strong><br>
+            1. Click "Print / Save as PDF"<br>
+            2. Choose "Save as PDF" as destination<br>
+            3. Click "Save"
+          </div>
+        `;
+        printWindow.document.body.appendChild(instructions);
+      };
+      
+      toast.success('Schedule opened for printing/PDF save');
     } catch (error) {
-      console.error('Error downloading PDF:', error);
-      toast.error('Failed to download PDF');
+      console.error('Error opening schedule:', error);
+      toast.error('Failed to open schedule');
     }
   };
 
