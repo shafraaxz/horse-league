@@ -4,6 +4,23 @@ import Image from 'next/image';
 import { Users, Trophy, Target } from 'lucide-react';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
+// Helper function to extract image URL from various formats
+const getImageUrl = (imageData) => {
+  if (!imageData) return null;
+  
+  // If it's already a string URL
+  if (typeof imageData === 'string' && imageData.startsWith('http')) {
+    return imageData;
+  }
+  
+  // If it's an object with url property
+  if (imageData && typeof imageData === 'object') {
+    return imageData.url || imageData.secure_url || null;
+  }
+  
+  return null;
+};
+
 export default function TeamsPage() {
   const [teams, setTeams] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -18,19 +35,34 @@ export default function TeamsPage() {
     fetchTeams();
   }, [selectedSeason]);
 
+  // Debug team logo data
+  useEffect(() => {
+    if (teams.length > 0) {
+      console.log('Teams logo debug:', teams.slice(0, 3).map(team => ({
+        teamName: team.name,
+        logoData: team.logo,
+        logoType: typeof team.logo,
+        extractedUrl: getImageUrl(team.logo)
+      })));
+    }
+  }, [teams]);
+
   const fetchSeasons = async () => {
     try {
       const response = await fetch('/api/public/seasons');
-      const data = await response.json();
-      setSeasons(data);
-      
-      // Set active season as default
-      const activeSeason = data.find(s => s.isActive);
-      if (activeSeason) {
-        setSelectedSeason(activeSeason._id);
+      if (response.ok) {
+        const data = await response.json();
+        setSeasons(Array.isArray(data) ? data : []);
+        
+        // Set active season as default
+        const activeSeason = data.find(s => s.isActive);
+        if (activeSeason) {
+          setSelectedSeason(activeSeason._id);
+        }
       }
     } catch (error) {
       console.error('Error fetching seasons:', error);
+      setSeasons([]);
     }
   };
 
@@ -42,10 +74,16 @@ export default function TeamsPage() {
         : '/api/public/teams';
       
       const response = await fetch(url);
-      const data = await response.json();
-      setTeams(data);
+      if (response.ok) {
+        const data = await response.json();
+        setTeams(Array.isArray(data) ? data : []);
+      } else {
+        console.error('Failed to fetch teams:', response.statusText);
+        setTeams([]);
+      }
     } catch (error) {
       console.error('Error fetching teams:', error);
+      setTeams([]);
     } finally {
       setIsLoading(false);
     }
@@ -85,15 +123,33 @@ export default function TeamsPage() {
           <Link key={team._id} href={`/teams/${team._id}`}>
             <div className="card hover:shadow-lg transition-shadow cursor-pointer">
               <div className="flex items-center space-x-4 mb-4">
-                {team.logo?.url && (
+                {getImageUrl(team.logo) ? (
                   <Image
-                    src={team.logo.url}
+                    src={getImageUrl(team.logo)}
                     alt={team.name}
                     width={60}
                     height={60}
                     className="rounded-full object-cover"
+                    onError={(e) => {
+                      console.error('Team logo failed to load:', team.logo);
+                      // Hide the image on error and show fallback
+                      e.target.style.display = 'none';
+                      if (e.target.nextSibling) {
+                        e.target.nextSibling.style.display = 'flex';
+                      }
+                    }}
                   />
-                )}
+                ) : null}
+                
+                {/* Fallback logo */}
+                <div 
+                  className={`w-15 h-15 bg-gray-200 rounded-full flex items-center justify-center ${
+                    getImageUrl(team.logo) ? 'hidden' : 'flex'
+                  }`}
+                >
+                  <Users className="w-8 h-8 text-gray-400" />
+                </div>
+
                 <div>
                   <h3 className="text-xl font-bold text-gray-900">{team.name}</h3>
                   <p className="text-gray-600">{team.season?.name}</p>
