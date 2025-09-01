@@ -1,3 +1,13 @@
+
 {
-  "version": 2
+  "_comment": "Option 1: Simple vercel.json (RECOMMENDED)",
+  "regions": ["iad1"],
+  "env": {
+    "MONGODB_URI": "@mongodb-uri",
+    "NEXTAUTH_SECRET": "@nextauth-secret", 
+    "NEXTAUTH_URL": "@nextauth-url",
+    "CLOUDINARY_CLOUD_NAME": "@cloudinary-cloud-name",
+    "CLOUDINARY_API_KEY": "@cloudinary-api-key",
+    "CLOUDINARY_API_SECRET": "@cloudinary-api-secret"
+  }
 }
