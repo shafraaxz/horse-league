@@ -95,7 +95,7 @@ export default async function handler(req, res) {
         height: playerData.height ? parseFloat(playerData.height) : undefined,
         weight: playerData.weight ? parseFloat(playerData.weight) : undefined,
         photo: photoUrl, // Store as string URL
-        currentTeam: playerData.currentTeam || null,
+        currentTeam: playerData.currentTeam && playerData.currentTeam !== '' ? playerData.currentTeam : null, // Handle empty strings
         status: playerData.status || 'active',
         
         // Emergency contact - exactly as model expects
@@ -256,6 +256,8 @@ export default async function handler(req, res) {
         return res.status(400).json({ message: 'Invalid player ID' });
       }
       
+      console.log('Updating player with data:', JSON.stringify(updateData, null, 2));
+      
       // Handle photo data for updates
       if (updateData.photo) {
         if (typeof updateData.photo === 'string' && updateData.photo.startsWith('http')) {
@@ -264,6 +266,24 @@ export default async function handler(req, res) {
           updateData.photo = updateData.photo.url;
         } else if (updateData.photo.secure_url) {
           updateData.photo = updateData.photo.secure_url;
+        }
+      }
+      
+      // Handle free agent assignment - allow empty string or null to become null
+      if (updateData.currentTeam === '' || updateData.currentTeam === 'null' || updateData.currentTeam === null) {
+        updateData.currentTeam = null;
+        console.log('Setting player as free agent (currentTeam: null)');
+      }
+      
+      // Validate team if provided (skip for free agents)
+      if (updateData.currentTeam) {
+        if (!mongoose.Types.ObjectId.isValid(updateData.currentTeam)) {
+          return res.status(400).json({ message: 'Invalid team ID format' });
+        }
+        
+        const team = await Team.findById(updateData.currentTeam);
+        if (!team) {
+          return res.status(400).json({ message: 'Team not found' });
         }
       }
       
@@ -277,6 +297,7 @@ export default async function handler(req, res) {
         return res.status(404).json({ message: 'Player not found' });
       }
 
+      console.log('Player updated successfully:', updatedPlayer.name, 'Team:', updatedPlayer.currentTeam?.name || 'Free Agent');
       return res.status(200).json(updatedPlayer);
     }
 
