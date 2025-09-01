@@ -1,329 +1,743 @@
 // ===========================================
-// FILE: pages/api/admin/players.js (FIXED WITH PHOTO VALIDATION)
+// FILE: pages/admin/players.js (COMPLETE WITH FORM)
 // ===========================================
-import dbConnect from '../../../lib/mongodb';
-import Player from '../../../models/Player';
-import Team from '../../../models/Team';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '../auth/[...nextauth]';
-import mongoose from 'mongoose';
+import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/router';
+import { Plus, Edit, Trash2, User } from 'lucide-react';
+import Modal from '../../components/ui/Modal';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import toast from 'react-hot-toast';
+import { calculateAge } from '../../lib/utils';
 
-export default async function handler(req, res) {
-  // Add CORS headers for production
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+// Helper function to extract image URL from various formats
+const getImageUrl = (imageData) => {
+  if (!imageData) return null;
   
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+  if (typeof imageData === 'string' && imageData.startsWith('http')) {
+    return imageData;
   }
+  
+  if (imageData && typeof imageData === 'object') {
+    return imageData.url || imageData.secure_url || null;
+  }
+  
+  return null;
+};
 
-  try {
-    await dbConnect();
+export default function AdminPlayers() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [players, setPlayers] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [seasons, setSeasons] = useState([]);
+  const [selectedSeason, setSelectedSeason] = useState('');
+  const [selectedTeam, setSelectedTeam] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [editingPlayer, setEditingPlayer] = useState(null);
+
+  useEffect(() => {
+    if (status === 'loading') return;
     
-    // Session validation (commented out for debugging)
-    // const session = await getServerSession(req, res, authOptions);
-    // if (!session) {
-    //   return res.status(401).json({ message: 'Authentication required' });
-    // }
-
-    if (req.method === 'GET') {
-      const { seasonId, teamId, search } = req.query;
-      
-      let query = {};
-      
-      // Filter by season
-      if (seasonId) {
-        const teams = await Team.find({ season: seasonId }).select('_id');
-        const teamIds = teams.map(team => team._id);
-        query.currentTeam = { $in: teamIds };
-      }
-      
-      // Filter by team
-      if (teamId) {
-        query.currentTeam = teamId;
-      }
-      
-      // Search by name
-      if (search) {
-        query.name = { $regex: search, $options: 'i' };
-      }
-
-      const players = await Player.find(query)
-        .populate('currentTeam', 'name')
-        .sort({ name: 1 })
-        .lean();
-
-      console.log(`Found ${players.length} players`);
-      return res.status(200).json(players || []);
+    if (!session) {
+      router.push('/login');
+      return;
     }
+    
+    if (session.user.role !== 'admin') {
+      router.push('/');
+      return;
+    }
+    
+    fetchSeasons();
+  }, [session, status, router]);
 
-    if (req.method === 'POST') {
-      const playerData = req.body;
+  useEffect(() => {
+    if (selectedSeason) {
+      fetchTeams();
+      fetchPlayers();
+    }
+  }, [selectedSeason, selectedTeam]);
+
+  const fetchSeasons = async () => {
+    try {
+      const response = await fetch('/api/admin/seasons');
       
-      console.log('Creating player with data:', JSON.stringify(playerData, null, 2));
-      
-      // Validate required fields
-      if (!playerData.name || !playerData.name.trim()) {
-        console.log('Validation failed: Name is required');
-        return res.status(400).json({ message: 'Player name is required' });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      // Handle photo data - normalize to string URL
-      let photoUrl = null;
-      if (playerData.photo) {
-        if (typeof playerData.photo === 'string' && playerData.photo.startsWith('http')) {
-          photoUrl = playerData.photo;
-        } else if (playerData.photo.url) {
-          photoUrl = playerData.photo.url;
-        } else if (playerData.photo.secure_url) {
-          photoUrl = playerData.photo.secure_url;
+      const data = await response.json();
+      
+      if (Array.isArray(data)) {
+        setSeasons(data);
+        
+        const activeSeason = data.find(s => s.isActive);
+        if (activeSeason) {
+          setSelectedSeason(activeSeason._id);
+        } else if (data.length > 0) {
+          setSelectedSeason(data[0]._id);
         }
+      } else {
+        console.error('Seasons data is not an array:', data);
+        setSeasons([]);
+        toast.error(data.message || 'Failed to fetch seasons');
+      }
+    } catch (error) {
+      console.error('Error fetching seasons:', error);
+      setSeasons([]);
+      toast.error('Failed to fetch seasons');
+    }
+  };
+
+  const fetchTeams = async () => {
+    try {
+      const response = await fetch(`/api/admin/teams?seasonId=${selectedSeason}`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      // Prepare clean player data matching Player model schema
-      const cleanPlayerData = {
-        name: playerData.name.trim(),
-        idCardNumber: playerData.idCardNumber ? playerData.idCardNumber.trim() : undefined, // Private SKU
-        email: playerData.email || undefined, // Optional field
-        phone: playerData.phone || undefined,
-        dateOfBirth: playerData.dateOfBirth || null,
-        nationality: playerData.nationality || '',
-        position: playerData.position || undefined, // Optional in futsal model
-        jerseyNumber: playerData.jerseyNumber ? parseInt(playerData.jerseyNumber) : undefined, // Fixed: undefined instead of null
-        height: playerData.height ? parseFloat(playerData.height) : undefined,
-        weight: playerData.weight ? parseFloat(playerData.weight) : undefined,
-        photo: photoUrl, // Store as string URL
-        currentTeam: playerData.currentTeam && playerData.currentTeam !== '' ? playerData.currentTeam : null, // Handle empty strings
-        status: playerData.status || 'active',
-        
-        // Emergency contact - exactly as model expects
-        emergencyContact: {
-          name: playerData.emergencyContact?.name || '',
-          phone: playerData.emergencyContact?.phone || '',
-          relationship: playerData.emergencyContact?.relationship || ''
-        },
-        
-        // Medical info - match model structure (arrays for allergies/conditions)
-        medicalInfo: {
-          bloodType: playerData.medicalInfo?.bloodType || '',
-          allergies: Array.isArray(playerData.medicalInfo?.allergies) 
-            ? playerData.medicalInfo.allergies 
-            : (playerData.medicalInfo?.allergies ? [playerData.medicalInfo.allergies] : []),
-          conditions: Array.isArray(playerData.medicalInfo?.conditions) 
-            ? playerData.medicalInfo.conditions 
-            : (playerData.medicalInfo?.conditions ? [playerData.medicalInfo.conditions] : []),
-          notes: playerData.medicalInfo?.notes || ''
-        },
-        
-        // Career stats - use model structure
-        careerStats: {
-          appearances: 0,
-          goals: 0,
-          assists: 0,
-          yellowCards: 0,
-          redCards: 0,
-          minutesPlayed: 0,
-          wins: 0,
-          losses: 0,
-          draws: 0
-        },
-        
-        notes: playerData.notes || ''
-      };
+      const data = await response.json();
       
-      // Remove undefined values to prevent MongoDB issues
-      Object.keys(cleanPlayerData).forEach(key => {
-        if (cleanPlayerData[key] === undefined) {
-          delete cleanPlayerData[key];
-        }
+      if (Array.isArray(data)) {
+        setTeams(data);
+      } else {
+        console.error('Teams data is not an array:', data);
+        setTeams([]);
+        toast.error(data.message || 'Failed to fetch teams');
+      }
+    } catch (error) {
+      console.error('Error fetching teams:', error);
+      setTeams([]);
+      toast.error('Failed to fetch teams');
+    }
+  };
+
+  const fetchPlayers = async () => {
+    try {
+      setIsLoading(true);
+      let url = `/api/admin/players?seasonId=${selectedSeason}`;
+      if (selectedTeam) url += `&teamId=${selectedTeam}`;
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (Array.isArray(data)) {
+        setPlayers(data);
+        
+        // Debug player photo data
+        console.log('Admin players photo debug:', data.slice(0, 3).map(p => ({
+          name: p.name,
+          photo: p.photo,
+          photoType: typeof p.photo,
+          extractedUrl: getImageUrl(p.photo)
+        })));
+      } else {
+        console.error('Players data is not an array:', data);
+        setPlayers([]);
+        toast.error(data.message || 'Failed to fetch players');
+      }
+    } catch (error) {
+      console.error('Error fetching players:', error);
+      setPlayers([]);
+      toast.error('Failed to fetch players');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAddPlayer = () => {
+    setEditingPlayer(null);
+    setShowModal(true);
+  };
+
+  const handleEditPlayer = (player) => {
+    setEditingPlayer(player);
+    setShowModal(true);
+  };
+
+  const handleDeletePlayer = async (playerId) => {
+    if (!confirm('Are you sure you want to delete this player?')) return;
+
+    try {
+      const response = await fetch(`/api/admin/players?id=${playerId}`, {
+        method: 'DELETE',
       });
-      
-      console.log('Clean player data:', JSON.stringify(cleanPlayerData, null, 2));
-      
-      // Validate team exists if provided
-      if (cleanPlayerData.currentTeam) {
-        if (!mongoose.Types.ObjectId.isValid(cleanPlayerData.currentTeam)) {
-          return res.status(400).json({ message: 'Invalid team ID format' });
-        }
-        
-        const team = await Team.findById(cleanPlayerData.currentTeam);
-        if (!team) {
-          return res.status(400).json({ message: 'Team not found' });
-        }
+
+      if (response.ok) {
+        toast.success('Player deleted successfully');
+        fetchPlayers();
+      } else {
+        const data = await response.json();
+        toast.error(data.message || 'Failed to delete player');
       }
-      
-      // Check for duplicate jersey number in the same team (only if both team and jersey exist)
-      if (cleanPlayerData.currentTeam && cleanPlayerData.jerseyNumber) {
-        const existingPlayer = await Player.findOne({
-          currentTeam: cleanPlayerData.currentTeam,
-          jerseyNumber: cleanPlayerData.jerseyNumber,
-          status: { $in: ['active', 'injured', 'suspended'] }
-        });
-        
-        if (existingPlayer) {
-          return res.status(400).json({ 
-            message: `Jersey number ${cleanPlayerData.jerseyNumber} is already taken by another player in this team` 
-          });
-        }
-      }
-      
-      // Check for duplicate ID card number
-      if (cleanPlayerData.idCardNumber) {
-        const existingPlayer = await Player.findOne({
-          idCardNumber: cleanPlayerData.idCardNumber
-        });
-        
-        if (existingPlayer) {
-          return res.status(400).json({ 
-            message: 'A player with this ID card number already exists' 
-          });
-        }
-      }
-      
-      // Create the player
-      try {
-        const player = new Player(cleanPlayerData);
-        await player.save();
-        
-        console.log('Player created successfully:', player._id);
-        
-        // AUTO-CREATE TRANSFER RECORD if player has a team
-        if (cleanPlayerData.currentTeam) {
-          try {
-            const Transfer = require('../../../models/Transfer');
-            const Season = require('../../../models/Season');
-            
-            // Get active season
-            const activeSeason = await Season.findOne({ isActive: true });
-            
-            if (activeSeason) {
-              const transferRecord = new Transfer({
-                player: player._id,
-                fromTeam: null, // New registration
-                toTeam: cleanPlayerData.currentTeam,
-                season: activeSeason._id,
-                transferType: 'registration',
-                transferDate: new Date(),
-                transferFee: 0,
-                notes: 'Initial player registration'
-              });
-              
-              await transferRecord.save();
-              console.log('Transfer record created for new player:', transferRecord._id);
-            }
-          } catch (transferError) {
-            console.error('Failed to create transfer record:', transferError);
-            // Don't fail the whole operation if transfer creation fails
-          }
-        }
-        
-        // Return populated player
-        const populatedPlayer = await Player.findById(player._id)
-          .populate('currentTeam', 'name')
-          .lean();
-        
-        return res.status(201).json(populatedPlayer);
-      } catch (saveError) {
-        console.error('Player save error:', saveError);
-        
-        if (saveError.code === 11000) {
-          // Duplicate key error
-          const field = Object.keys(saveError.keyPattern)[0];
-          return res.status(400).json({ 
-            message: `A player with this ${field} already exists` 
-          });
-        }
-        
-        if (saveError.name === 'ValidationError') {
-          const errors = Object.values(saveError.errors).map(err => err.message);
-          return res.status(400).json({ 
-            message: 'Validation failed', 
-            errors 
-          });
-        }
-        
-        throw saveError;
-      }
+    } catch (error) {
+      console.error('Error deleting player:', error);
+      toast.error('Failed to delete player');
     }
+  };
 
-    if (req.method === 'PUT') {
-      const { id } = req.query;
-      const updateData = req.body;
-      
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).json({ message: 'Invalid player ID' });
-      }
-      
-      console.log('Updating player with data:', JSON.stringify(updateData, null, 2));
-      
-      // Handle photo data for updates
-      if (updateData.photo) {
-        if (typeof updateData.photo === 'string' && updateData.photo.startsWith('http')) {
-          updateData.photo = updateData.photo;
-        } else if (updateData.photo.url) {
-          updateData.photo = updateData.photo.url;
-        } else if (updateData.photo.secure_url) {
-          updateData.photo = updateData.photo.secure_url;
-        }
-      }
-      
-      // Handle free agent assignment - allow empty string or null to become null
-      if (updateData.currentTeam === '' || updateData.currentTeam === 'null' || updateData.currentTeam === null) {
-        updateData.currentTeam = null;
-        console.log('Setting player as free agent (currentTeam: null)');
-      }
-      
-      // Validate team if provided (skip for free agents)
-      if (updateData.currentTeam) {
-        if (!mongoose.Types.ObjectId.isValid(updateData.currentTeam)) {
-          return res.status(400).json({ message: 'Invalid team ID format' });
-        }
-        
-        const team = await Team.findById(updateData.currentTeam);
-        if (!team) {
-          return res.status(400).json({ message: 'Team not found' });
-        }
-      }
-      
-      const updatedPlayer = await Player.findByIdAndUpdate(
-        id,
-        updateData,
-        { new: true, runValidators: true }
-      ).populate('currentTeam', 'name');
-
-      if (!updatedPlayer) {
-        return res.status(404).json({ message: 'Player not found' });
-      }
-
-      console.log('Player updated successfully:', updatedPlayer.name, 'Team:', updatedPlayer.currentTeam?.name || 'Free Agent');
-      return res.status(200).json(updatedPlayer);
-    }
-
-    if (req.method === 'DELETE') {
-      const { id } = req.query;
-      
-      if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).json({ message: 'Invalid player ID' });
-      }
-
-      const deletedPlayer = await Player.findByIdAndDelete(id);
-      if (!deletedPlayer) {
-        return res.status(404).json({ message: 'Player not found' });
-      }
-
-      return res.status(200).json({ message: 'Player deleted successfully' });
-    }
-
-    return res.status(405).json({ message: 'Method not allowed' });
-
-  } catch (error) {
-    console.error('Admin players API error:', error);
-    return res.status(500).json({ 
-      message: 'Internal server error', 
-      error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+  if (status === 'loading' || isLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
   }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-gray-900">Manage Players</h1>
+        <div className="flex space-x-4">
+          <select
+            value={selectedTeam}
+            onChange={(e) => setSelectedTeam(e.target.value)}
+            className="form-input w-48"
+          >
+            <option value="">All Teams</option>
+            {Array.isArray(teams) && teams.map(team => (
+              <option key={team._id} value={team._id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selectedSeason}
+            onChange={(e) => setSelectedSeason(e.target.value)}
+            className="form-input w-48"
+          >
+            {Array.isArray(seasons) && seasons.map(season => (
+              <option key={season._id} value={season._id}>
+                {season.name} {season.isActive && '(Active)'}
+              </option>
+            ))}
+          </select>
+          <button onClick={handleAddPlayer} className="btn btn-primary flex items-center">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Player
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Photo</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Jersey #</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Age</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Goals</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {Array.isArray(players) && players.map((player) => (
+                <tr key={player._id}>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {getImageUrl(player.photo) ? (
+                      <img
+                        src={getImageUrl(player.photo)}
+                        alt={player.name}
+                        className="h-10 w-10 rounded-full object-cover"
+                        onError={(e) => {
+                          console.error('Admin player photo failed:', player.name, player.photo);
+                          e.target.style.display = 'none';
+                          if (e.target.nextSibling) {
+                            e.target.nextSibling.style.display = 'flex';
+                          }
+                        }}
+                      />
+                    ) : null}
+                    <div className={`h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center ${
+                      getImageUrl(player.photo) ? 'hidden' : 'flex'
+                    }`}>
+                      <User className="w-5 h-5 text-gray-400" />
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-gray-900">{player.name}</div>
+                    {player.nationality && (
+                      <div className="text-sm text-gray-500">{player.nationality}</div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">
+                      {player.jerseyNumber ? `#${player.jerseyNumber}` : '-'}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">
+                      {player.currentTeam?.name || 'Free Agent'}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">
+                      {player.dateOfBirth ? calculateAge(player.dateOfBirth) : '-'}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                      player.status === 'active' ? 'bg-green-100 text-green-800' :
+                      player.status === 'injured' ? 'bg-red-100 text-red-800' :
+                      player.status === 'suspended' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-gray-100 text-gray-800'
+                    }`}>
+                      {player.status?.charAt(0).toUpperCase() + player.status?.slice(1)}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm font-medium text-green-600">
+                      {player.careerStats?.goals || 0}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <button
+                      onClick={() => handleEditPlayer(player)}
+                      className="text-blue-600 hover:text-blue-900 mr-3"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeletePlayer(player._id)}
+                      className="text-red-600 hover:text-red-900"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {(!Array.isArray(players) || players.length === 0) && (
+          <div className="text-center py-12">
+            <User className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No players found</h3>
+            <p className="text-gray-500">Get started by registering your first player.</p>
+          </div>
+        )}
+      </div>
+
+      <Modal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        title={editingPlayer ? 'Edit Player' : 'Register New Player'}
+        size="lg"
+      >
+        <PlayerForm
+          player={editingPlayer}
+          teams={teams}
+          seasons={seasons}
+          selectedSeason={selectedSeason}
+          onClose={() => setShowModal(false)}
+          onSuccess={() => {
+            setShowModal(false);
+            fetchPlayers();
+          }}
+        />
+      </Modal>
+    </div>
+  );
+}
+
+// Player Form Component - Futsal Optimized
+// Player Form Component - Updated with ID Card Number
+function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    name: player?.name || '',
+    idCardNumber: player?.idCardNumber || '', // Added ID card field
+    email: player?.email || '',
+    phone: player?.phone || '',
+    dateOfBirth: player?.dateOfBirth ? player.dateOfBirth.split('T')[0] : '',
+    nationality: player?.nationality || '',
+    position: player?.position || '',
+    jerseyNumber: player?.jerseyNumber || '',
+    height: player?.height || '',
+    weight: player?.weight || '',
+    currentTeam: player?.currentTeam?._id || '',
+    status: player?.status || 'active',
+    notes: player?.notes || '',
+    
+    // Emergency contact
+    emergencyContact: {
+      name: player?.emergencyContact?.name || '',
+      phone: player?.emergencyContact?.phone || '',
+      relationship: player?.emergencyContact?.relationship || ''
+    }
+  });
+  
+  const [photoFile, setPhotoFile] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    // Basic validation - only require name
+    if (!formData.name.trim()) {
+      toast.error('Player name is required');
+      return;
+    }
+    
+    setIsSubmitting(true);
+
+    try {
+      let photoData = player?.photo; // Keep existing photo if no new file
+
+      // Upload photo if new file selected
+      if (photoFile) {
+        console.log('Uploading player photo...');
+        setUploadingPhoto(true);
+        
+        const uploadFormData = new FormData();
+        uploadFormData.append('file', photoFile);
+        uploadFormData.append('type', 'player');
+
+        const uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: uploadFormData,
+        });
+
+        if (uploadResponse.ok) {
+          const uploadResult = await uploadResponse.json();
+          console.log('Photo upload successful:', uploadResult);
+          
+          // Save just the URL
+          photoData = uploadResult.url;
+          
+          toast.success('Photo uploaded successfully');
+        } else {
+          const uploadError = await uploadResponse.json();
+          console.error('Photo upload failed:', uploadError);
+          toast.error(uploadError.message || 'Photo upload failed');
+          setIsSubmitting(false);
+          setUploadingPhoto(false);
+          return;
+        }
+        
+        setUploadingPhoto(false);
+      }
+
+      console.log('Saving player with photo data:', photoData);
+
+      const method = player ? 'PUT' : 'POST';
+      const body = player 
+        ? { ...formData, id: player._id, photo: photoData }
+        : { ...formData, photo: photoData };
+
+      const response = await fetch('/api/admin/players', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Player save result:', result);
+        toast.success(player ? 'Player updated successfully' : 'Player registered successfully');
+        onSuccess();
+      } else {
+        const data = await response.json();
+        console.error('Player save failed:', data);
+        toast.error(data.message || 'Failed to save player');
+      }
+    } catch (error) {
+      console.error('Player form error:', error);
+      toast.error('Failed to save player');
+    } finally {
+      setIsSubmitting(false);
+      setUploadingPhoto(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Basic Information */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="form-group">
+          <label className="form-label">Full Name *</label>
+          <input
+            type="text"
+            className="form-input"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            required
+            placeholder="Enter player's full name"
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">ID Card Number</label>
+          <input
+            type="text"
+            className="form-input"
+            value={formData.idCardNumber}
+            onChange={(e) => setFormData({ ...formData, idCardNumber: e.target.value })}
+            placeholder="National ID or passport number"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Private identifier - not shown to public
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="form-group">
+          <label className="form-label">Jersey Number</label>
+          <input
+            type="number"
+            min="1"
+            max="99"
+            className="form-input"
+            value={formData.jerseyNumber}
+            onChange={(e) => setFormData({ ...formData, jerseyNumber: e.target.value })}
+            placeholder="1-99 (optional)"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            Leave blank if no jersey assigned yet
+          </p>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Role (Optional)</label>
+          <select
+            className="form-input"
+            value={formData.position}
+            onChange={(e) => setFormData({ ...formData, position: e.target.value })}
+          >
+            <option value="">No specific role</option>
+            <option value="Goalkeeper">Goalkeeper</option>
+            <option value="Outfield Player">Outfield Player</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Photo Upload */}
+      <div className="form-group">
+        <label className="form-label">Player Photo</label>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => setPhotoFile(e.target.files[0])}
+          className="form-input"
+        />
+        {uploadingPhoto && (
+          <p className="text-blue-600 text-sm mt-1">Uploading photo...</p>
+        )}
+        {player?.photo && (
+          <div className="mt-2">
+            <p className="text-sm text-gray-600">Current photo:</p>
+            <img 
+              src={getImageUrl(player.photo)} 
+              alt="Current photo" 
+              className="h-16 w-16 rounded-full object-cover mt-1"
+              onError={(e) => e.target.style.display = 'none'}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Contact Information */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="form-group">
+          <label className="form-label">Email</label>
+          <input
+            type="email"
+            className="form-input"
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            placeholder="player@email.com"
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Phone</label>
+          <input
+            type="tel"
+            className="form-input"
+            value={formData.phone}
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            placeholder="Phone number"
+          />
+        </div>
+      </div>
+
+      {/* Personal Details */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="form-group">
+          <label className="form-label">Date of Birth</label>
+          <input
+            type="date"
+            className="form-input"
+            value={formData.dateOfBirth}
+            onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Nationality</label>
+          <input
+            type="text"
+            className="form-input"
+            value={formData.nationality}
+            onChange={(e) => setFormData({ ...formData, nationality: e.target.value })}
+            placeholder="e.g., Maldivian"
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Status</label>
+          <select
+            className="form-input"
+            value={formData.status}
+            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+          >
+            <option value="active">Active</option>
+            <option value="injured">Injured</option>
+            <option value="suspended">Suspended</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Physical Details */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="form-group">
+          <label className="form-label">Height (cm)</label>
+          <input
+            type="number"
+            className="form-input"
+            value={formData.height}
+            onChange={(e) => setFormData({ ...formData, height: e.target.value })}
+            placeholder="170"
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Weight (kg)</label>
+          <input
+            type="number"
+            className="form-input"
+            value={formData.weight}
+            onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
+            placeholder="70"
+          />
+        </div>
+      </div>
+
+      {/* Team Assignment */}
+      <div className="form-group">
+        <label className="form-label">Team Assignment</label>
+        <select
+          className="form-input"
+          value={formData.currentTeam}
+          onChange={(e) => setFormData({ ...formData, currentTeam: e.target.value })}
+        >
+          <option value="">Free Agent (No team assigned)</option>
+          {Array.isArray(teams) && teams.map(team => (
+            <option key={team._id} value={team._id}>
+              {team.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-gray-500 mt-1">
+          Players can be registered without a team assignment
+        </p>
+      </div>
+
+      {/* Emergency Contact */}
+      <div className="border-t pt-4">
+        <h3 className="text-lg font-medium text-gray-900 mb-3">Emergency Contact</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="form-group">
+            <label className="form-label">Contact Name</label>
+            <input
+              type="text"
+              className="form-input"
+              value={formData.emergencyContact.name}
+              onChange={(e) => setFormData({
+                ...formData,
+                emergencyContact: { ...formData.emergencyContact, name: e.target.value }
+              })}
+              placeholder="Full name"
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Contact Phone</label>
+            <input
+              type="tel"
+              className="form-input"
+              value={formData.emergencyContact.phone}
+              onChange={(e) => setFormData({
+                ...formData,
+                emergencyContact: { ...formData.emergencyContact, phone: e.target.value }
+              })}
+              placeholder="Emergency contact number"
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Relationship</label>
+            <select
+              className="form-input"
+              value={formData.emergencyContact.relationship}
+              onChange={(e) => setFormData({
+                ...formData,
+                emergencyContact: { ...formData.emergencyContact, relationship: e.target.value }
+              })}
+            >
+              <option value="">Select relationship</option>
+              <option value="parent">Parent</option>
+              <option value="spouse">Spouse</option>
+              <option value="sibling">Sibling</option>
+              <option value="friend">Friend</option>
+              <option value="guardian">Guardian</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div className="form-group">
+        <label className="form-label">Additional Notes</label>
+        <textarea
+          className="form-input"
+          rows="3"
+          value={formData.notes}
+          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+          placeholder="Any additional information about the player..."
+        />
+      </div>
+
+      {/* Form Actions */}
+      <div className="flex justify-end space-x-4 pt-4 border-t">
+        <button type="button" onClick={onClose} className="btn btn-secondary">
+          Cancel
+        </button>
+        <button 
+          type="submit" 
+          disabled={isSubmitting || uploadingPhoto} 
+          className="btn btn-primary"
+        >
+          {isSubmitting ? 'Saving...' : uploadingPhoto ? 'Uploading...' : player ? 'Update Player' : 'Register Player'}
+        </button>
+      </div>
+    </form>
+  );
 }
