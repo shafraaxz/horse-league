@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { Users, Calendar, Trophy, TrendingUp, Plus, FileDown, Upload } from 'lucide-react';
+import { Users, Calendar, Trophy, TrendingUp, Plus, FileDown, Upload, Calculator } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
@@ -40,6 +40,78 @@ export default function AdminDashboard() {
       toast.error('Failed to load admin data');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Match Statistics Functions
+  const updateAllMatchStats = async () => {
+    try {
+      const response = await fetch('/api/admin/update-match-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        toast.success(`Updated all stats! Processed ${result.matchesProcessed} matches for ${result.teamsUpdated} teams`);
+        console.log('All stats update result:', result);
+      } else {
+        toast.error(result.message || 'Failed to update stats');
+      }
+    } catch (error) {
+      console.error('Stats update error:', error);
+      toast.error('Failed to update match statistics');
+    }
+  };
+
+  const updateSeasonStats = async () => {
+    try {
+      // Get active season first
+      const seasonsRes = await fetch('/api/admin/seasons');
+      const seasons = await seasonsRes.json();
+      const activeSeason = seasons.find(s => s.isActive);
+      
+      if (!activeSeason) {
+        toast.error('No active season found');
+        return;
+      }
+
+      const response = await fetch('/api/admin/update-match-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seasonId: activeSeason._id })
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        toast.success(`Season stats updated! Processed ${result.matchesProcessed} matches`);
+        console.log('Season stats update result:', result);
+      } else {
+        toast.error(result.message || 'Failed to update season stats');
+      }
+    } catch (error) {
+      console.error('Season stats update error:', error);
+      toast.error('Failed to update season statistics');
+    }
+  };
+
+  const testStandings = async () => {
+    try {
+      const response = await fetch('/api/public/standings');
+      const result = await response.json();
+      
+      if (response.ok) {
+        toast.success(`Standings working! Found ${result.length} teams with stats`);
+        console.log('Current standings:', result);
+      } else {
+        toast.error('Standings API failed');
+      }
+    } catch (error) {
+      console.error('Standings test error:', error);
+      toast.error('Failed to test standings');
     }
   };
 
@@ -130,6 +202,82 @@ export default function AdminDashboard() {
           <TrendingUp className="w-12 h-12 text-yellow-600 mx-auto mb-4" />
           <h3 className="text-2xl font-bold text-gray-900">{stats.totalTransfers || 0}</h3>
           <p className="text-gray-600">Total Transfers</p>
+        </div>
+      </div>
+
+      {/* Match Statistics Manager */}
+      <div className="card bg-blue-50 border border-blue-200">
+        <div className="flex items-start space-x-3 mb-4">
+          <Calculator className="w-5 h-5 text-blue-600 mt-1" />
+          <div>
+            <h3 className="text-lg font-semibold text-blue-900">Match Statistics Manager</h3>
+            <p className="text-blue-800 text-sm">
+              Update team standings and statistics when matches are completed. Run this after entering match results.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Update All Stats */}
+          <div className="p-4 bg-white rounded-lg border">
+            <div className="flex items-center mb-3">
+              <TrendingUp className="w-4 h-4 text-green-600 mr-2" />
+              <h4 className="font-medium">Update All Team Stats</h4>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              Recalculate all team statistics from completed matches. Use this to fix standings.
+            </p>
+            <button
+              onClick={updateAllMatchStats}
+              className="btn btn-primary w-full"
+            >
+              <Calculator className="w-4 h-4 mr-2" />
+              Update All Stats
+            </button>
+          </div>
+
+          {/* Update Season Stats */}
+          <div className="p-4 bg-white rounded-lg border">
+            <div className="flex items-center mb-3">
+              <Trophy className="w-4 h-4 text-yellow-600 mr-2" />
+              <h4 className="font-medium">Update Season Stats</h4>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              Update statistics for the current active season only.
+            </p>
+            <button
+              onClick={updateSeasonStats}
+              className="btn btn-secondary w-full"
+            >
+              <TrendingUp className="w-4 h-4 mr-2" />
+              Update Season
+            </button>
+          </div>
+
+          {/* Test Standings */}
+          <div className="p-4 bg-white rounded-lg border">
+            <div className="flex items-center mb-3">
+              <Users className="w-4 h-4 text-purple-600 mr-2" />
+              <h4 className="font-medium">Test Standings</h4>
+            </div>
+            <p className="text-sm text-gray-600 mb-3">
+              Check if the standings are showing updated team statistics.
+            </p>
+            <button
+              onClick={testStandings}
+              className="btn btn-secondary w-full"
+            >
+              <Users className="w-4 h-4 mr-2" />
+              Test Standings
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+          <p className="text-yellow-800 text-sm">
+            <strong>When to use:</strong> Run "Update All Stats" after entering match results to refresh league standings. 
+            The standings and team profile pages will then show current win/loss records and points.
+          </p>
         </div>
       </div>
 
@@ -240,7 +388,7 @@ export default function AdminDashboard() {
   );
 }
 
-// Add User Form Component
+// Add User Form Component (unchanged)
 function AddUserForm({ onClose }) {
   const [formData, setFormData] = useState({
     name: '',
@@ -343,7 +491,7 @@ function AddUserForm({ onClose }) {
   );
 }
 
-// Import Matches Form Component
+// Import Matches Form Component (unchanged)
 function ImportMatchesForm({ onClose }) {
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
