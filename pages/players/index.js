@@ -5,40 +5,6 @@ import { User, MapPin, Calendar } from 'lucide-react';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { calculateAge } from '../../lib/utils';
 
-// Helper function to extract image URL from various formats
-const getImageUrl = (imageData) => {
-  if (!imageData) return null;
-  
-  // If it's already a string URL
-  if (typeof imageData === 'string' && imageData.startsWith('http')) {
-    return imageData;
-  }
-  
-  // If it's an object with url property
-  if (imageData && typeof imageData === 'object') {
-    return imageData.url || imageData.secure_url || null;
-  }
-  
-  return null;
-};
-
-// Helper function to extract image URL from various formats
-const getImageUrl = (imageData) => {
-  if (!imageData) return null;
-  
-  // If it's already a string URL
-  if (typeof imageData === 'string' && imageData.startsWith('http')) {
-    return imageData;
-  }
-  
-  // If it's an object with url property
-  if (imageData && typeof imageData === 'object') {
-    return imageData.url || imageData.secure_url || null;
-  }
-  
-  return null;
-};
-
 export default function PlayersPage() {
   const [players, setPlayers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,25 +29,19 @@ export default function PlayersPage() {
         fetch('/api/public/seasons')
       ]);
 
-      if (teamsRes.ok) {
-        const teamsData = await teamsRes.json();
-        setTeams(Array.isArray(teamsData) ? teamsData : []);
-      }
+      const teamsData = await teamsRes.json();
+      const seasonsData = await seasonsRes.json();
 
-      if (seasonsRes.ok) {
-        const seasonsData = await seasonsRes.json();
-        setSeasons(Array.isArray(seasonsData) ? seasonsData : []);
+      setTeams(teamsData);
+      setSeasons(seasonsData);
 
-        // Set active season as default
-        const activeSeason = seasonsData.find(s => s.isActive);
-        if (activeSeason) {
-          setSelectedSeason(activeSeason._id);
-        }
+      // Set active season as default
+      const activeSeason = seasonsData.find(s => s.isActive);
+      if (activeSeason) {
+        setSelectedSeason(activeSeason._id);
       }
     } catch (error) {
       console.error('Error fetching teams and seasons:', error);
-      setTeams([]);
-      setSeasons([]);
     }
   };
 
@@ -95,37 +55,22 @@ export default function PlayersPage() {
       if (selectedSeason) params.append('seasonId', selectedSeason);
       
       const response = await fetch(`${url}${params.toString()}`);
+      const data = await response.json();
       
-      if (response.ok) {
-        const data = await response.json();
+      // Filter by position if selected
+      const filteredData = selectedPosition 
+        ? data.filter(player => player.position === selectedPosition)
+        : data;
         
-        console.log('Public players data:', data.slice(0, 3)); // Debug log
-        
-        if (Array.isArray(data)) {
-          // Filter by position if selected
-          const filteredData = selectedPosition 
-            ? data.filter(player => player.position === selectedPosition)
-            : data;
-            
-          setPlayers(filteredData);
-        } else {
-          console.error('Players data is not an array:', data);
-          setPlayers([]);
-        }
-      } else {
-        console.error('Failed to fetch players:', response.status);
-        setPlayers([]);
-      }
+      setPlayers(filteredData);
     } catch (error) {
       console.error('Error fetching players:', error);
-      setPlayers([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Updated positions to match your model
-  const positions = ['Goalkeeper', 'Outfield Player'];
+  const positions = ['Goalkeeper', 'Defender', 'Midfielder', 'Forward'];
 
   if (isLoading) {
     return (
@@ -193,35 +138,22 @@ export default function PlayersPage() {
           <Link key={player._id} href={`/players/${player._id}`}>
             <div className="card hover:shadow-lg transition-shadow cursor-pointer">
               <div className="text-center mb-4">
-                {getImageUrl(player.photo) ? (
+                {player.photo?.url ? (
                   <Image
-                    src={getImageUrl(player.photo)}
-                    alt={player.name}
+                    src={player.photo.url}
+                    alt={`${player.firstName} ${player.lastName}`}
                     width={80}
                     height={80}
                     className="rounded-full object-cover mx-auto mb-3"
-                    onError={(e) => {
-                      console.error('Public player photo failed:', player.name, player.photo);
-                      // Hide failed image and show fallback
-                      e.target.style.display = 'none';
-                      if (e.target.nextSibling) {
-                        e.target.nextSibling.style.display = 'flex';
-                      }
-                    }}
                   />
-                ) : null}
-                
-                {/* Fallback avatar */}
-                <div 
-                  className={`w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-3 ${
-                    getImageUrl(player.photo) ? 'hidden' : 'flex'
-                  }`}
-                >
-                  <User className="w-10 h-10 text-gray-400" />
-                </div>
+                ) : (
+                  <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-3">
+                    <User className="w-10 h-10 text-gray-400" />
+                  </div>
+                )}
                 
                 <h3 className="text-lg font-bold text-gray-900">
-                  {player.name}
+                  {player.firstName} {player.lastName}
                 </h3>
                 
                 {player.jerseyNumber && (
@@ -232,21 +164,17 @@ export default function PlayersPage() {
               </div>
 
               <div className="space-y-2 text-sm">
-                {player.position && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Position:</span>
-                    <span className="font-medium">{player.position}</span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">Position:</span>
+                  <span className="font-medium">{player.position}</span>
+                </div>
                 
-                {player.dateOfBirth && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Age:</span>
-                    <span className="font-medium">
-                      {calculateAge(player.dateOfBirth)}
-                    </span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">Age:</span>
+                  <span className="font-medium">
+                    {calculateAge(player.dateOfBirth)}
+                  </span>
+                </div>
                 
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Team:</span>
@@ -255,12 +183,10 @@ export default function PlayersPage() {
                   </span>
                 </div>
 
-                {player.nationality && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">Nationality:</span>
-                    <span className="font-medium">{player.nationality}</span>
-                  </div>
-                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">Nationality:</span>
+                  <span className="font-medium">{player.nationality}</span>
+                </div>
               </div>
 
               {/* Player Stats */}
@@ -291,7 +217,7 @@ export default function PlayersPage() {
         ))}
       </div>
 
-      {players.length === 0 && !isLoading && (
+      {players.length === 0 && (
         <div className="card text-center py-12">
           <User className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-700 mb-4">No Players Found</h2>
@@ -324,12 +250,7 @@ export default function PlayersPage() {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-yellow-600">
-                {players.length > 0 && players.filter(p => p.dateOfBirth).length > 0 
-                  ? Math.round(players
-                      .filter(p => p.dateOfBirth)
-                      .reduce((sum, p) => sum + calculateAge(p.dateOfBirth), 0) / players.filter(p => p.dateOfBirth).length)
-                  : 0
-                }
+                {Math.round(players.reduce((sum, p) => sum + calculateAge(p.dateOfBirth), 0) / players.length)}
               </div>
               <div className="text-gray-600">Avg Age</div>
             </div>
