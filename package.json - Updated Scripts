@@ -1,0 +1,72 @@
+// Add these scripts to your package.json:
+{
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "setup": "node scripts/setup.js",
+    "postinstall": "node scripts/setup.js"
+  }
+}
+
+// ===========================================
+// INSTALLATION INSTRUCTIONS
+// ===========================================
+
+/*
+## Quick Setup Instructions
+
+1. **Install Dependencies**
+   ```bash
+   npm install
+   ```
+
+2. **Environment Setup**
+   Create `.env.local` file:
+   ```
+   MONGODB_URI=your_mongodb_connection_string
+   NEXTAUTH_SECRET=your_secret_key
+   NEXTAUTH_URL=http://localhost:3000
+   CLOUDINARY_CLOUD_NAME=your_cloud_name
+   CLOUDINARY_API_KEY=your_api_key
+   CLOUDINARY_API_SECRET=your_api_secret
+   ```
+
+3. **Initial Setup**
+   ```bash
+   npm run setup
+   ```
+   This creates an admin user and initial season.
+
+4. **Start Development**
+   ```bash
+   npm run dev
+   ```
+
+5. **Login as Admin**
+   - Email: admin@horsefutsal.com
+   - Password: admin123
+   - Change password after first login!
+
+## Deployment to Vercel
+
+1. **Push to GitHub**
+2. **Connect to Vercel**
+3. **Add Environment Variables** in Vercel dashboard
+4. **Deploy**
+
+The app is optimized for Vercel's free tier!
+
+## Key Features Working:
+✅ Authentication & Authorization
+✅ Team Management with Logo Upload
+✅ Player Management with Photo Upload
+✅ Live Match Management
+✅ Transfer Market Tracking
+✅ League Standings
+✅ CSV Import for Matches
+✅ PDF Schedule Generation
+✅ Real-time Updates
+✅ Mobile Responsive Design
+*/
