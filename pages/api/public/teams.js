@@ -40,22 +40,22 @@ export default async function handler(req, res) {
           status: { $in: ['active', 'injured', 'suspended'] }
         });
         
-        // LOGO FIX: Ensure logo is in correct format for frontend
-        let logoUrl = null;
+        // LOGO FIX: Normalize logo to consistent format
+        let normalizedLogo = null;
         if (team.logo) {
           if (typeof team.logo === 'string' && team.logo.startsWith('http')) {
-            logoUrl = team.logo;
-          } else if (team.logo.url) {
-            logoUrl = team.logo.url;
-          } else if (team.logo.secure_url) {
-            logoUrl = team.logo.secure_url;
+            normalizedLogo = { url: team.logo };
+          } else if (team.logo.url || team.logo.secure_url) {
+            normalizedLogo = {
+              url: team.logo.url || team.logo.secure_url
+            };
           }
         }
         
         return {
           ...team,
           playerCount,
-          logo: logoUrl, // Always return as string URL or null
+          logo: normalizedLogo, // Always return as object with url property
           stats: team.stats || {
             wins: 0,
             draws: 0,
@@ -72,7 +72,8 @@ export default async function handler(req, res) {
     console.log('Public teams API - Logo debug:', teamsWithData.slice(0, 2).map(t => ({
       name: t.name,
       logo: t.logo,
-      logoType: typeof t.logo
+      logoType: typeof t.logo,
+      logoUrl: t.logo?.url
     })));
     
     res.status(200).json(teamsWithData);
