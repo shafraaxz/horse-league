@@ -1,3 +1,5 @@
+// FILE: pages/login.js
+// ===========================================
 import { useState } from 'react';
 import { signIn, getSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
