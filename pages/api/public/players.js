@@ -43,11 +43,21 @@ export default async function handler(req, res) {
       query.name = { $regex: search, $options: 'i' };
     }
 
+    console.log('Public players API - Query parameters:', { seasonId, teamId, search });
+    console.log('Public players API - MongoDB query:', JSON.stringify(query));
+
     const players = await Player.find(query)
       .select('-idCardNumber -medicalInfo -emergencyContact -notes -email -phone') // EXCLUDE PRIVATE DATA
       .populate('currentTeam', 'name season')
       .sort({ name: 1 })
       .lean();
+
+    console.log(`Public players API - Raw results: ${players.length} players`);
+    console.log('First few players:', players.slice(0, 2).map(p => ({ 
+      name: p.name, 
+      currentTeam: p.currentTeam?.name,
+      teamSeason: p.currentTeam?.season 
+    })));
 
     // Transform data for public consumption - MATCH FRONTEND EXPECTATIONS
     const publicPlayers = players.map(player => ({
