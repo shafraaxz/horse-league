@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/teams/[id].js
+// FILE: pages/teams/[id].js (UPDATED WITH LOGO FIX)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
@@ -21,6 +21,23 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { format } from 'date-fns';
 import { calculateAge } from '../../lib/utils';
 
+// Helper function to extract image URL from various formats
+const getImageUrl = (imageData) => {
+  if (!imageData) return null;
+  
+  // If it's already a string URL
+  if (typeof imageData === 'string' && imageData.startsWith('http')) {
+    return imageData;
+  }
+  
+  // If it's an object with url property
+  if (imageData && typeof imageData === 'object') {
+    return imageData.url || imageData.secure_url || null;
+  }
+  
+  return null;
+};
+
 export default function TeamProfile() {
   const router = useRouter();
   const { id } = router.query;
@@ -37,29 +54,49 @@ export default function TeamProfile() {
     }
   }, [id]);
 
+  // Debug team logo data
+  useEffect(() => {
+    if (team) {
+      console.log('Team profile logo debug:', {
+        teamName: team.name,
+        logoData: team.logo,
+        logoType: typeof team.logo,
+        extractedUrl: getImageUrl(team.logo)
+      });
+    }
+  }, [team]);
+
   const fetchTeamData = async () => {
     try {
       setIsLoading(true);
       
       // Fetch team details
       const teamResponse = await fetch(`/api/public/teams/${id}`);
-      const teamData = await teamResponse.json();
-      setTeam(teamData);
+      if (teamResponse.ok) {
+        const teamData = await teamResponse.json();
+        setTeam(teamData);
+      }
 
       // Fetch team players
       const playersResponse = await fetch(`/api/public/players?teamId=${id}`);
-      const playersData = await playersResponse.json();
-      setPlayers(playersData);
+      if (playersResponse.ok) {
+        const playersData = await playersResponse.json();
+        setPlayers(Array.isArray(playersData) ? playersData : []);
+      }
 
       // Fetch team matches
       const matchesResponse = await fetch(`/api/public/matches?teamId=${id}&limit=10`);
-      const matchesData = await matchesResponse.json();
-      setMatches(matchesData);
+      if (matchesResponse.ok) {
+        const matchesData = await matchesResponse.json();
+        setMatches(Array.isArray(matchesData) ? matchesData : []);
+      }
 
       // Fetch recent transfers
       const transfersResponse = await fetch(`/api/public/transfers?teamId=${id}&limit=5`);
-      const transfersData = await transfersResponse.json();
-      setTransfers(transfersData);
+      if (transfersResponse.ok) {
+        const transfersData = await transfersResponse.json();
+        setTransfers(Array.isArray(transfersData) ? transfersData : []);
+      }
 
     } catch (error) {
       console.error('Error fetching team data:', error);
@@ -115,19 +152,33 @@ export default function TeamProfile() {
       <div className="card">
         <div className="flex flex-col md:flex-row items-start md:items-center space-y-4 md:space-y-0 md:space-x-8">
           <div className="flex items-center space-x-6">
-            {team.logo?.url ? (
+            {getImageUrl(team.logo) ? (
               <Image
-                src={team.logo.url}
+                src={getImageUrl(team.logo)}
                 alt={team.name}
                 width={100}
                 height={100}
                 className="rounded-full object-cover"
+                onError={(e) => {
+                  console.error('Team profile logo failed:', team.logo);
+                  // Hide the image on error and show fallback
+                  e.target.style.display = 'none';
+                  if (e.target.nextSibling) {
+                    e.target.nextSibling.style.display = 'flex';
+                  }
+                }}
               />
-            ) : (
-              <div className="w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center">
-                <Users className="w-12 h-12 text-gray-400" />
-              </div>
-            )}
+            ) : null}
+            
+            {/* Fallback logo */}
+            <div 
+              className={`w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center ${
+                getImageUrl(team.logo) ? 'hidden' : 'flex'
+              }`}
+            >
+              <Users className="w-12 h-12 text-gray-400" />
+            </div>
+
             <div>
               <h1 className="text-3xl font-bold text-gray-900">{team.name}</h1>
               <p className="text-gray-600">{team.season?.name}</p>
@@ -226,19 +277,23 @@ export default function TeamProfile() {
                     </div>
                   )}
 
-                  <div className="flex items-center">
-                    <div className="w-4 h-4 mr-3" style={{ backgroundColor: team.homeColor }}></div>
-                    <span className="text-sm">
-                      <strong>Home Kit:</strong> {team.homeColor}
-                    </span>
-                  </div>
+                  {team.homeColor && (
+                    <div className="flex items-center">
+                      <div className="w-4 h-4 mr-3 rounded border" style={{ backgroundColor: team.homeColor }}></div>
+                      <span className="text-sm">
+                        <strong>Home Kit:</strong> {team.homeColor}
+                      </span>
+                    </div>
+                  )}
 
-                  <div className="flex items-center">
-                    <div className="w-4 h-4 mr-3" style={{ backgroundColor: team.awayColor }}></div>
-                    <span className="text-sm">
-                      <strong>Away Kit:</strong> {team.awayColor}
-                    </span>
-                  </div>
+                  {team.awayColor && (
+                    <div className="flex items-center">
+                      <div className="w-4 h-4 mr-3 rounded border" style={{ backgroundColor: team.awayColor }}></div>
+                      <span className="text-sm">
+                        <strong>Away Kit:</strong> {team.awayColor}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -319,6 +374,9 @@ export default function TeamProfile() {
                       );
                     })}
                 </div>
+                {matches.filter(match => match.status === 'completed').length === 0 && (
+                  <p className="text-gray-500 text-sm">No completed matches yet</p>
+                )}
               </div>
             </div>
           </div>
@@ -332,32 +390,41 @@ export default function TeamProfile() {
                 <Link key={player._id} href={`/players/${player._id}`}>
                   <div className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
                     <div className="flex items-center space-x-3">
-                      {player.photo?.url ? (
+                      {getImageUrl(player.photo) ? (
                         <Image
-                          src={player.photo.url}
-                          alt={`${player.firstName} ${player.lastName}`}
+                          src={getImageUrl(player.photo)}
+                          alt={player.name}
                           width={48}
                           height={48}
                           className="rounded-full object-cover"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            if (e.target.nextSibling) {
+                              e.target.nextSibling.style.display = 'flex';
+                            }
+                          }}
                         />
-                      ) : (
-                        <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                          <User className="w-6 h-6 text-gray-400" />
-                        </div>
-                      )}
+                      ) : null}
+                      
+                      <div 
+                        className={`w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center ${
+                          getImageUrl(player.photo) ? 'hidden' : 'flex'
+                        }`}
+                      >
+                        <User className="w-6 h-6 text-gray-400" />
+                      </div>
+                      
                       <div className="flex-1">
-                        <div className="font-medium">
-                          {player.firstName} {player.lastName}
-                        </div>
+                        <div className="font-medium">{player.name}</div>
                         <div className="text-sm text-gray-600">{player.position}</div>
                         <div className="text-sm text-gray-500">
                           {player.jerseyNumber && `#${player.jerseyNumber} • `}
-                          Age {calculateAge(player.dateOfBirth)}
+                          {player.dateOfBirth && `Age ${calculateAge(player.dateOfBirth)}`}
                         </div>
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-bold text-green-600">
-                          {player.stats?.goals || 0} goals
+                          {player.careerStats?.goals || 0} goals
                         </div>
                       </div>
                     </div>
@@ -380,7 +447,7 @@ export default function TeamProfile() {
             <h3 className="text-lg font-semibold mb-6">Recent Matches</h3>
             <div className="space-y-4">
               {matches.map((match) => {
-                const isHome = match.homeTeam._id === team._id;
+                const isHome = match.homeTeam?._id === team._id;
                 const opponent = isHome ? match.awayTeam : match.homeTeam;
                 const result = getMatchResult(match);
 
@@ -392,7 +459,7 @@ export default function TeamProfile() {
                           {format(new Date(match.matchDate), 'MMM dd, yyyy')}
                         </div>
                         <div className="font-medium">
-                          {isHome ? 'vs' : '@'} {opponent.name}
+                          {isHome ? 'vs' : '@'} {opponent?.name}
                         </div>
                         {match.venue && (
                           <div className="flex items-center text-sm text-gray-500">
@@ -448,7 +515,7 @@ export default function TeamProfile() {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
                       <div className="font-medium">
-                        {transfer.player.firstName} {transfer.player.lastName}
+                        {transfer.player?.name || 'Unknown Player'}
                       </div>
                       <div className="flex items-center space-x-2 text-sm text-gray-600">
                         {transfer.transferType === 'registration' ? (
@@ -459,7 +526,7 @@ export default function TeamProfile() {
                           <>
                             <span>{transfer.fromTeam?.name || 'Free Agent'}</span>
                             <span>→</span>
-                            <span>{transfer.toTeam.name}</span>
+                            <span>{transfer.toTeam?.name}</span>
                           </>
                         )}
                       </div>
