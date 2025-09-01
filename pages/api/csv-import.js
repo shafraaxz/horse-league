@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/csv-import.js (CSV IMPORT API)
+// FILE: pages/api/csv-import.js (FIXED - NO MULTER)
 // ===========================================
 import connectDB from '../../lib/mongodb';
 import Match from '../../models/Match';
@@ -7,20 +7,54 @@ import Team from '../../models/Team';
 import Season from '../../models/Season';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from './auth/[...nextauth]';
-import multer from 'multer';
-import { promisify } from 'util';
-import Papa from 'papaparse';
+import formidable from 'formidable';
+import fs from 'fs';
 
-// Configure multer for file upload
-const upload = multer({ storage: multer.memoryStorage() });
-const uploadMiddleware = promisify(upload.single('csvFile'));
-
-// Disable body parser for file uploads
+// Configure to handle file uploads
 export const config = {
   api: {
     bodyParser: false,
   },
 };
+
+// Simple CSV parser function (no external dependency)
+function parseCSV(csvText) {
+  const lines = csvText.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+  
+  const data = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    const values = [];
+    let currentValue = '';
+    let inQuotes = false;
+    
+    for (let j = 0; j < line.length; j++) {
+      const char = line[j];
+      
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        values.push(currentValue.trim());
+        currentValue = '';
+      } else {
+        currentValue += char;
+      }
+    }
+    values.push(currentValue.trim());
+    
+    const row = {};
+    headers.forEach((header, index) => {
+      row[header] = values[index] || '';
+    });
+    
+    data.push(row);
+  }
+  
+  return { data, errors: [] };
+}
 
 export default async function handler(req, res) {
   // Add CORS headers
@@ -57,40 +91,28 @@ export default async function handler(req, res) {
       return res.status(403).json({ message: 'Admin access required' });
     }
 
-    // Handle file upload
-    try {
-      await uploadMiddleware(req, res);
-    } catch (error) {
-      console.error('File upload error:', error);
-      return res.status(400).json({ message: 'File upload failed' });
-    }
+    // Parse form data using formidable
+    const form = formidable({
+      maxFileSize: 10 * 1024 * 1024, // 10MB
+      keepExtensions: true,
+    });
 
-    if (!req.file) {
+    const [fields, files] = await form.parse(req);
+    
+    const csvFile = Array.isArray(files.csvFile) ? files.csvFile[0] : files.csvFile;
+    
+    if (!csvFile) {
       return res.status(400).json({ message: 'No CSV file uploaded' });
     }
 
-    // Parse CSV
-    const csvData = req.file.buffer.toString('utf8');
+    // Read CSV file
+    const csvData = fs.readFileSync(csvFile.filepath, 'utf8');
     console.log('CSV data received, length:', csvData.length);
 
-    const parseResult = Papa.parse(csvData, {
-      header: true,
-      skipEmptyLines: true,
-      transform: (value, header) => {
-        // Trim whitespace from all values
-        return typeof value === 'string' ? value.trim() : value;
-      }
-    });
-
-    if (parseResult.errors.length > 0) {
-      console.error('CSV parsing errors:', parseResult.errors);
-      return res.status(400).json({ 
-        message: 'CSV parsing failed', 
-        errors: parseResult.errors 
-      });
-    }
-
+    // Parse CSV data
+    const parseResult = parseCSV(csvData);
     const rows = parseResult.data;
+    
     console.log(`Processing ${rows.length} rows from CSV`);
 
     // Get all teams and seasons for validation
@@ -241,6 +263,13 @@ export default async function handler(req, res) {
           error: error.message || 'Unknown error'
         });
       }
+    }
+
+    // Clean up uploaded file
+    try {
+      fs.unlinkSync(csvFile.filepath);
+    } catch (cleanupError) {
+      console.warn('Could not delete temp file:', cleanupError);
     }
 
     console.log('CSV Import Results:', {
