@@ -1,25 +1,8 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { format } from 'date-fns';
-import { ArrowRight, Calendar, DollarSign, User } from 'lucide-react';
+import { ArrowRight, Calendar, DollarSign } from 'lucide-react';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
-
-// Helper function to extract image URL from various formats
-const getImageUrl = (imageData) => {
-  if (!imageData) return null;
-  
-  // If it's already a string URL
-  if (typeof imageData === 'string' && imageData.startsWith('http')) {
-    return imageData;
-  }
-  
-  // If it's an object with url property
-  if (imageData && typeof imageData === 'object') {
-    return imageData.url || imageData.secure_url || null;
-  }
-  
-  return null;
-};
 
 export default function TransfersPage() {
   const [transfers, setTransfers] = useState([]);
@@ -39,18 +22,15 @@ export default function TransfersPage() {
   const fetchSeasons = async () => {
     try {
       const response = await fetch('/api/public/seasons');
-      if (response.ok) {
-        const data = await response.json();
-        setSeasons(Array.isArray(data) ? data : []);
-        
-        const activeSeason = data.find(s => s.isActive);
-        if (activeSeason) {
-          setSelectedSeason(activeSeason._id);
-        }
+      const data = await response.json();
+      setSeasons(data);
+      
+      const activeSeason = data.find(s => s.isActive);
+      if (activeSeason) {
+        setSelectedSeason(activeSeason._id);
       }
     } catch (error) {
       console.error('Error fetching seasons:', error);
-      setSeasons([]);
     }
   };
 
@@ -61,29 +41,16 @@ export default function TransfersPage() {
       if (selectedSeason) url += `&seasonId=${selectedSeason}`;
       
       const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
+      const data = await response.json();
+      
+      // Filter by transfer type if needed
+      const filteredData = filter === 'all' 
+        ? data 
+        : data.filter(t => t.transferType === filter);
         
-        console.log('Transfers fetch result:', data);
-        
-        if (Array.isArray(data)) {
-          // Filter by transfer type if needed
-          const filteredData = filter === 'all' 
-            ? data 
-            : data.filter(t => t.transferType === filter);
-            
-          setTransfers(filteredData);
-        } else {
-          console.error('Transfers data is not an array:', data);
-          setTransfers([]);
-        }
-      } else {
-        console.error('Failed to fetch transfers:', response.status);
-        setTransfers([]);
-      }
+      setTransfers(filteredData);
     } catch (error) {
       console.error('Error fetching transfers:', error);
-      setTransfers([]);
     } finally {
       setIsLoading(false);
     }
@@ -193,42 +160,26 @@ export default function TransfersPage() {
             <div key={transfer._id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center space-x-4">
-                  {getImageUrl(transfer.player?.photo) ? (
+                  {transfer.player.photo?.url && (
                     <Image
-                      src={getImageUrl(transfer.player.photo)}
-                      alt={transfer.player?.name || 'Player'}
+                      src={transfer.player.photo.url}
+                      alt={`${transfer.player.firstName} ${transfer.player.lastName}`}
                       width={50}
                       height={50}
                       className="rounded-full object-cover"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                        if (e.target.nextSibling) {
-                          e.target.nextSibling.style.display = 'flex';
-                        }
-                      }}
                     />
-                  ) : null}
-                  
-                  {/* Fallback avatar */}
-                  <div 
-                    className={`w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center ${
-                      getImageUrl(transfer.player?.photo) ? 'hidden' : 'flex'
-                    }`}
-                  >
-                    <User className="w-6 h-6 text-gray-400" />
-                  </div>
-                  
+                  )}
                   <div>
                     <h3 className="text-lg font-semibold text-gray-900">
-                      {transfer.player?.name || 'Unknown Player'}
+                      {transfer.player.firstName} {transfer.player.lastName}
                     </h3>
-                    <p className="text-gray-600">{transfer.player?.position || 'Player'}</p>
+                    <p className="text-gray-600">{transfer.player.position}</p>
                   </div>
                 </div>
                 
                 <div className="flex items-center space-x-4">
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${getTransferTypeColor(transfer.transferType)}`}>
-                    {getTransferTypeIcon(transfer.transferType)} {transfer.transferType?.toUpperCase() || 'TRANSFER'}
+                    {getTransferTypeIcon(transfer.transferType)} {transfer.transferType.toUpperCase()}
                   </span>
                   <div className="text-right">
                     <div className="flex items-center text-gray-600">
@@ -248,19 +199,14 @@ export default function TransfersPage() {
               <div className="flex items-center justify-center space-x-6">
                 {transfer.fromTeam ? (
                   <div className="flex items-center space-x-3">
-                    {getImageUrl(transfer.fromTeam.logo) ? (
+                    {transfer.fromTeam.logo?.url && (
                       <Image
-                        src={getImageUrl(transfer.fromTeam.logo)}
+                        src={transfer.fromTeam.logo.url}
                         alt={transfer.fromTeam.name}
                         width={40}
                         height={40}
                         className="rounded-full object-cover"
-                        onError={(e) => e.target.style.display = 'none'}
                       />
-                    ) : (
-                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                        <User className="w-5 h-5 text-gray-400" />
-                      </div>
                     )}
                     <div className="text-center">
                       <p className="font-medium text-gray-900">{transfer.fromTeam.name}</p>
@@ -280,22 +226,17 @@ export default function TransfersPage() {
                 <ArrowRight className="w-6 h-6 text-gray-400" />
 
                 <div className="flex items-center space-x-3">
-                  {getImageUrl(transfer.toTeam?.logo) ? (
+                  {transfer.toTeam.logo?.url && (
                     <Image
-                      src={getImageUrl(transfer.toTeam.logo)}
-                      alt={transfer.toTeam?.name || 'Team'}
+                      src={transfer.toTeam.logo.url}
+                      alt={transfer.toTeam.name}
                       width={40}
                       height={40}
                       className="rounded-full object-cover"
-                      onError={(e) => e.target.style.display = 'none'}
                     />
-                  ) : (
-                    <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                      <User className="w-5 h-5 text-gray-400" />
-                    </div>
                   )}
                   <div className="text-center">
-                    <p className="font-medium text-gray-900">{transfer.toTeam?.name || 'Unknown Team'}</p>
+                    <p className="font-medium text-gray-900">{transfer.toTeam.name}</p>
                     <p className="text-sm text-gray-600">To</p>
                   </div>
                 </div>
