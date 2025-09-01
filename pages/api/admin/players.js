@@ -189,6 +189,36 @@ export default async function handler(req, res) {
         
         console.log('Player created successfully:', player._id);
         
+        // AUTO-CREATE TRANSFER RECORD if player has a team
+        if (cleanPlayerData.currentTeam) {
+          try {
+            const Transfer = require('../../../models/Transfer');
+            const Season = require('../../../models/Season');
+            
+            // Get active season
+            const activeSeason = await Season.findOne({ isActive: true });
+            
+            if (activeSeason) {
+              const transferRecord = new Transfer({
+                player: player._id,
+                fromTeam: null, // New registration
+                toTeam: cleanPlayerData.currentTeam,
+                season: activeSeason._id,
+                transferType: 'registration',
+                transferDate: new Date(),
+                transferFee: 0,
+                notes: 'Initial player registration'
+              });
+              
+              await transferRecord.save();
+              console.log('Transfer record created for new player:', transferRecord._id);
+            }
+          } catch (transferError) {
+            console.error('Failed to create transfer record:', transferError);
+            // Don't fail the whole operation if transfer creation fails
+          }
+        }
+        
         // Return populated player
         const populatedPlayer = await Player.findById(player._id)
           .populate('currentTeam', 'name')
