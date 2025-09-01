@@ -40,9 +40,16 @@ export default async function handler(req, res) {
       .limit(parseInt(limit))
       .lean();
 
-    console.log(`Public transfers API: Found ${transfers.length} transfers`);
+    // FILTER OUT ORPHANED TRANSFERS (where player is null)
+    const validTransfers = transfers.filter(transfer => transfer.player);
     
-    res.status(200).json(transfers || []);
+    if (transfers.length !== validTransfers.length) {
+      console.log(`Filtered out ${transfers.length - validTransfers.length} orphaned transfers`);
+    }
+
+    console.log(`Public transfers API: Found ${validTransfers.length} valid transfers`);
+    
+    res.status(200).json(validTransfers || []);
   } catch (error) {
     console.error('Public transfers API error:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
