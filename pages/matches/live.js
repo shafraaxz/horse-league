@@ -43,13 +43,26 @@ export default function LiveMatch() {
   const fetchMatch = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/matches/${matchId}`);
+      
+      // Try the dynamic route first, then fallback to alternative endpoint
+      let response;
+      try {
+        response = await fetch(`/api/matches/${matchId}`);
+      } catch (error) {
+        console.warn('Dynamic route failed, trying alternative:', error);
+        response = await fetch(`/api/get-match?id=${matchId}`);
+      }
       
       if (!response.ok) {
-        throw new Error('Match not found');
+        if (response.status === 404) {
+          throw new Error('Match not found - please check the match ID');
+        }
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const matchData = await response.json();
+      console.log('Match data loaded:', matchData);
+      
       setMatch(matchData);
       setIsLive(matchData.status === 'live');
       setHomeScore(matchData.homeScore || 0);
@@ -59,8 +72,12 @@ export default function LiveMatch() {
       
     } catch (error) {
       console.error('Error fetching match:', error);
-      toast.error('Failed to load match');
-      router.push('/admin/matches');
+      toast.error(error.message || 'Failed to load match');
+      
+      // Redirect back to matches page after 3 seconds
+      setTimeout(() => {
+        router.push('/admin/matches');
+      }, 3000);
     } finally {
       setIsLoading(false);
     }
