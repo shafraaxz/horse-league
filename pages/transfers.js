@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { format } from 'date-fns';
-import { ArrowRight, Calendar, DollarSign, User, AlertCircle, UserPlus, UserMinus } from 'lucide-react';
+import { ArrowRight, Calendar, User, AlertCircle, UserPlus, UserMinus } from 'lucide-react';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 
 // Helper function to extract image URL from various formats
