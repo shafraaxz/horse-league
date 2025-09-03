@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { format } from 'date-fns';
-import { ArrowRight, Calendar, DollarSign, User } from 'lucide-react';
+import { ArrowRight, Calendar, DollarSign, User, AlertCircle } from 'lucide-react';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 
 // Helper function to extract image URL from various formats
@@ -27,6 +27,7 @@ export default function TransfersPage() {
   const [selectedSeason, setSelectedSeason] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // all, registration, transfer, loan
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     fetchSeasons();
@@ -57,10 +58,15 @@ export default function TransfersPage() {
   const fetchTransfers = async () => {
     try {
       setIsLoading(true);
+      setError(null);
+      
       let url = '/api/public/transfers?limit=50';
       if (selectedSeason) url += `&seasonId=${selectedSeason}`;
       
+      console.log('Fetching transfers from:', url);
+      
       const response = await fetch(url);
+      
       if (response.ok) {
         const data = await response.json();
         
@@ -73,16 +79,29 @@ export default function TransfersPage() {
             : data.filter(t => t.transferType === filter);
             
           setTransfers(filteredData);
+          console.log(`Loaded ${filteredData.length} transfers`);
         } else {
           console.error('Transfers data is not an array:', data);
           setTransfers([]);
         }
       } else {
-        console.error('Failed to fetch transfers:', response.status);
+        console.error('Failed to fetch transfers:', response.status, response.statusText);
+        
+        // Try to get error details
+        try {
+          const errorData = await response.text();
+          console.error('Error response:', errorData);
+          setError(`Server error: ${response.status}`);
+        } catch (e) {
+          console.error('Could not parse error response');
+          setError('Failed to load transfers');
+        }
+        
         setTransfers([]);
       }
     } catch (error) {
       console.error('Error fetching transfers:', error);
+      setError('Network error: Could not connect to server');
       setTransfers([]);
     } finally {
       setIsLoading(false);
@@ -151,40 +170,61 @@ export default function TransfersPage() {
         </div>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <div className="card bg-red-50 border border-red-200">
+          <div className="flex items-center space-x-3">
+            <AlertCircle className="w-6 h-6 text-red-600" />
+            <div>
+              <h3 className="font-semibold text-red-800">Failed to Load Transfers</h3>
+              <p className="text-red-700">{error}</p>
+              <button 
+                onClick={fetchTransfers}
+                className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Transfer Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="card text-center">
-          <div className="text-2xl mb-2">🆕</div>
-          <h3 className="text-2xl font-bold text-green-600">
-            {transfers.filter(t => t.transferType === 'registration').length}
-          </h3>
-          <p className="text-gray-600">New Registrations</p>
+      {transfers.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="card text-center">
+            <div className="text-2xl mb-2">🆕</div>
+            <h3 className="text-2xl font-bold text-green-600">
+              {transfers.filter(t => t.transferType === 'registration').length}
+            </h3>
+            <p className="text-gray-600">New Registrations</p>
+          </div>
+          
+          <div className="card text-center">
+            <div className="text-2xl mb-2">🔄</div>
+            <h3 className="text-2xl font-bold text-blue-600">
+              {transfers.filter(t => t.transferType === 'transfer').length}
+            </h3>
+            <p className="text-gray-600">Transfers</p>
+          </div>
+          
+          <div className="card text-center">
+            <div className="text-2xl mb-2">📋</div>
+            <h3 className="text-2xl font-bold text-yellow-600">
+              {transfers.filter(t => t.transferType === 'loan').length}
+            </h3>
+            <p className="text-gray-600">Loans</p>
+          </div>
+          
+          <div className="card text-center">
+            <DollarSign className="w-8 h-8 text-purple-600 mx-auto mb-2" />
+            <h3 className="text-2xl font-bold text-purple-600">
+              ${transfers.reduce((sum, t) => sum + (t.transferFee || 0), 0).toLocaleString()}
+            </h3>
+            <p className="text-gray-600">Total Value</p>
+          </div>
         </div>
-        
-        <div className="card text-center">
-          <div className="text-2xl mb-2">🔄</div>
-          <h3 className="text-2xl font-bold text-blue-600">
-            {transfers.filter(t => t.transferType === 'transfer').length}
-          </h3>
-          <p className="text-gray-600">Transfers</p>
-        </div>
-        
-        <div className="card text-center">
-          <div className="text-2xl mb-2">📋</div>
-          <h3 className="text-2xl font-bold text-yellow-600">
-            {transfers.filter(t => t.transferType === 'loan').length}
-          </h3>
-          <p className="text-gray-600">Loans</p>
-        </div>
-        
-        <div className="card text-center">
-          <DollarSign className="w-8 h-8 text-purple-600 mx-auto mb-2" />
-          <h3 className="text-2xl font-bold text-purple-600">
-            ${transfers.reduce((sum, t) => sum + (t.transferFee || 0), 0).toLocaleString()}
-          </h3>
-          <p className="text-gray-600">Total Value</p>
-        </div>
-      </div>
+      )}
 
       {/* Transfers List */}
       <div className="card">
@@ -193,7 +233,7 @@ export default function TransfersPage() {
             <div key={transfer._id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center space-x-4">
-                  {/* FIXED: Check if player exists and has photo */}
+                  {/* FIXED: Better player data handling */}
                   {transfer.player && getImageUrl(transfer.player.photo) ? (
                     <Image
                       src={getImageUrl(transfer.player.photo)}
@@ -225,6 +265,9 @@ export default function TransfersPage() {
                       {transfer.player?.name || 'Unknown Player (Deleted)'}
                     </h3>
                     <p className="text-gray-600">{transfer.player?.position || 'Player'}</p>
+                    {!transfer.player && (
+                      <p className="text-red-500 text-sm">⚠️ Player data unavailable</p>
+                    )}
                   </div>
                 </div>
                 
@@ -314,7 +357,7 @@ export default function TransfersPage() {
           ))}
         </div>
 
-        {transfers.length === 0 && (
+        {transfers.length === 0 && !error && (
           <div className="text-center py-12">
             <div className="text-6xl mb-4">📋</div>
             <h2 className="text-xl font-semibold text-gray-700 mb-4">No Transfers Found</h2>
