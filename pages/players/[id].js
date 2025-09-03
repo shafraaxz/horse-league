@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/players/[id].js (UPDATED WITH CONTRACT INFORMATION)
+// FILE: pages/players/[id].js (COMPLETE PLAYER PROFILE WITH CONTRACT INFO)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
@@ -127,7 +127,7 @@ export default function PlayerProfile() {
     }
   };
 
-  // NEW: Contract status helpers
+  // Contract status helpers
   const getContractStatusColor = (contractStatus) => {
     switch (contractStatus) {
       case 'normal': return 'bg-blue-100 text-blue-800';
@@ -219,7 +219,7 @@ export default function PlayerProfile() {
                   {player.status?.charAt(0).toUpperCase() + player.status?.slice(1)}
                 </span>
 
-                {/* NEW: Contract Status Display */}
+                {/* Contract Status Display */}
                 {player.contractStatus && (
                   <div className="flex items-center space-x-1">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-1 ${
@@ -289,7 +289,7 @@ export default function PlayerProfile() {
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'overview', name: 'Overview', icon: User },
-            { id: 'contract', name: 'Contract', icon: FileText }, // NEW: Contract tab
+            { id: 'contract', name: 'Contract', icon: FileText },
             { id: 'stats', name: 'Statistics', icon: TrendingUp },
             { id: 'matches', name: 'Match History', icon: Calendar },
             { id: 'transfers', name: 'Transfer History', icon: Activity },
@@ -357,7 +357,7 @@ export default function PlayerProfile() {
                     </span>
                   </div>
 
-                  {/* NEW: Contract Status Overview */}
+                  {/* Contract Status Overview */}
                   <div>
                     <div className="text-sm text-gray-600">Contract Status</div>
                     <div className="flex items-center space-x-2 mt-1">
@@ -498,7 +498,7 @@ export default function PlayerProfile() {
           </div>
         )}
 
-        {/* NEW: Contract Tab */}
+        {/* Contract Tab */}
         {activeTab === 'contract' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Current Contract */}
