@@ -331,8 +331,8 @@ export default function TransfersPage() {
                       </div>
                       {transfer.transferFee > 0 && (
                         <div className="flex items-center text-green-600 font-medium">
-                          <DollarSign className="w-4 h-4 mr-1" />
-                          {transfer.transferFee.toLocaleString()}
+                          <span className="text-lg mr-1">💰</span>
+                          MVR {transfer.transferFee.toLocaleString()}
                         </div>
                       )}
                     </div>
