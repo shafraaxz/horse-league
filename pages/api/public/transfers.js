@@ -1,10 +1,8 @@
 // ===========================================
-// FILE: pages/api/public/transfers.js (ENHANCED - Support Free Agent Moves)
+// FILE: pages/api/public/transfers.js (ENHANCED - Player Support)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Transfer from '../../../models/Transfer';
-import Team from '../../../models/Team';
-import Player from '../../../models/Player';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -14,13 +12,18 @@ export default async function handler(req, res) {
   await dbConnect();
   
   try {
-    const { seasonId, limit = 20, teamId } = req.query;
+    const { seasonId, limit = 20, teamId, playerId } = req.query;
     
     let query = {};
     
     // Filter by season
     if (seasonId && seasonId !== 'all') {
       query.season = seasonId;
+    }
+    
+    // ENHANCED: Filter by player (for player profiles)
+    if (playerId && playerId !== 'all') {
+      query.player = playerId;
     }
     
     // ENHANCED: Filter by team (including free agent moves)
@@ -100,7 +103,7 @@ export default async function handler(req, res) {
       };
     });
     
-    console.log(`Public transfers API: Found ${enhancedTransfers.length} valid transfers`);
+    console.log(`Public transfers API: Found ${enhancedTransfers.length} valid transfers${playerId ? ' for player ' + playerId : ''}`);
     
     res.status(200).json(enhancedTransfers || []);
     
