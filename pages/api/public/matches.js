@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/public/matches.js (FIXED - Better Error Handling)
+// FILE: pages/api/public/matches.js (ENHANCED - Player Support)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Match from '../../../models/Match';
@@ -22,9 +22,9 @@ export default async function handler(req, res) {
   try {
     await dbConnect();
 
-    const { status, limit, seasonId, teamId, live } = req.query;
+    const { status, limit, seasonId, teamId, playerId, live } = req.query;
     
-    console.log('Public matches API called with:', { status, limit, seasonId, teamId, live });
+    console.log('Public matches API called with:', { status, limit, seasonId, teamId, playerId, live });
     
     let query = {};
     
@@ -46,13 +46,33 @@ export default async function handler(req, res) {
       ];
     }
     
+    // Filter by player (for player profiles)
+    // Note: This is a simplified filter - in a full implementation,
+    // you'd need to track which players participated in which matches
+    if (playerId && playerId !== 'all') {
+      // For now, we'll get matches from the player's current team
+      // In a full implementation, you'd track player participation
+      try {
+        const Player = require('../../../models/Player');
+        const player = await Player.findById(playerId).select('currentTeam');
+        if (player && player.currentTeam) {
+          query.$or = [
+            { homeTeam: player.currentTeam },
+            { awayTeam: player.currentTeam }
+          ];
+        }
+      } catch (playerError) {
+        console.log('Player lookup failed for matches filter');
+      }
+    }
+    
     // Special filter for live matches
     if (live === 'true') {
       query.status = 'live';
       query['liveData.isLive'] = true;
     }
     
-    console.log('Query:', JSON.stringify(query, null, 2));
+    console.log('Match query:', JSON.stringify(query, null, 2));
     
     let matchQuery = Match.find(query)
       .populate('homeTeam', 'name logo')
@@ -78,7 +98,7 @@ export default async function handler(req, res) {
     // Ensure we always have an array
     if (!Array.isArray(matches)) {
       console.error('Matches is not an array:', typeof matches, matches);
-      return res.status(200).json([]); // Return empty array instead of error
+      return res.status(200).json([]);
     }
     
     // Normalize logo data for consistent frontend display
@@ -105,7 +125,7 @@ export default async function handler(req, res) {
         };
       } catch (matchError) {
         console.error('Error processing match:', match._id, matchError);
-        return match; // Return original match if processing fails
+        return match;
       }
     });
     
@@ -127,12 +147,10 @@ function normalizeLogoData(logo) {
   if (!logo) return null;
   
   try {
-    // If it's already a string URL, return as is
     if (typeof logo === 'string') {
       return logo;
     }
     
-    // If it's a Cloudinary object, extract the URL
     if (typeof logo === 'object') {
       return logo.secure_url || logo.url || null;
     }
