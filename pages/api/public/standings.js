@@ -130,6 +130,24 @@ export default async function handler(req, res) {
           
           stats.goalDifference = stats.goalsFor - stats.goalsAgainst;
           
+          // Add manual fair play points from administrative actions
+          try {
+            const FairPlayRecord = require('../../../models/FairPlayRecord').default;
+            const manualFairPlayRecords = await FairPlayRecord.find({
+              team: team._id,
+              season: query.season,
+              status: 'active' // Only count active records
+            }).lean();
+            
+            manualFairPlayRecords.forEach(record => {
+              stats.fairPlayPoints += record.points;
+            });
+            
+            console.log(`${team.name}: Added ${manualFairPlayRecords.reduce((sum, r) => sum + r.points, 0)} manual fair play points`);
+          } catch (fairPlayError) {
+            console.log(`Could not load manual fair play records for ${team.name}:`, fairPlayError.message);
+          }
+          
           console.log(`${team.name} stats:`, {
             points: stats.points,
             goalDifference: stats.goalDifference,
