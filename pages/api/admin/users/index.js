@@ -1,9 +1,9 @@
 // pages/api/admin/users/index.js
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../auth/[...nextauth]';
-// Use the exact import paths from your working files
-import dbConnect from '../../../lib/mongodb';
-import User from '../../../models/User';
+// FIXED: Correct import paths (4 levels up instead of 3)
+import dbConnect from '../../../../lib/mongodb';
+import User from '../../../../models/User';
 import bcrypt from 'bcryptjs';
 
 export default async function handler(req, res) {
