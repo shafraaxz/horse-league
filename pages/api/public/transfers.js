@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   await dbConnect();
   
   try {
-    const { seasonId, limit = 20, teamId, playerId } = req.query;
+    console.log('Public transfers API called with:', { seasonId, limit, teamId, playerId });
     
     let query = {};
     
@@ -24,6 +24,7 @@ export default async function handler(req, res) {
     // ENHANCED: Filter by player (for player profiles)
     if (playerId && playerId !== 'all') {
       query.player = playerId;
+      console.log('Filtering transfers by player:', playerId);
     }
     
     // ENHANCED: Filter by team (including free agent moves)
