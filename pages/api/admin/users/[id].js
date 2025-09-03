@@ -1,8 +1,9 @@
 // pages/api/admin/users/[id].js
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../auth/[...nextauth]';
-import dbConnect from '../../../lib/mongodb';
-import User from '../../../models/User';
+// FIXED: Correct import paths (4 levels up instead of 3)
+import dbConnect from '../../../../lib/mongodb';
+import User from '../../../../models/User';
 import mongoose from 'mongoose';
 
 export default async function handler(req, res) {
