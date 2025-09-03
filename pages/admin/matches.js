@@ -481,25 +481,6 @@ export default function AdminMatches() {
           }}
         />
       </Modal>
-
-      {/* Bulk Historical Matches Modal */}
-      <Modal
-        isOpen={showBulkHistoricalModal}
-        onClose={() => setShowBulkHistoricalModal(false)}
-        title="Add Historical Matches"
-        size="xl"
-      >
-        <BulkHistoricalMatchesForm
-          teams={teams}
-          seasons={seasons}
-          selectedSeason={selectedSeason}
-          onClose={() => setShowBulkHistoricalModal(false)}
-          onSuccess={() => {
-            setShowBulkHistoricalModal(false);
-            fetchMatches();
-          }}
-        />
-      </Modal>
     </div>
   );
 }
