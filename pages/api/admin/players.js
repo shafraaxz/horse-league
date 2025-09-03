@@ -1,17 +1,12 @@
 // ===========================================
-// FILE: pages/api/admin/players.js (UPDATED - Added Auto Transfer Creation)
+// FILE: pages/api/admin/players.js (UPDATED - Added Contract Status Filtering)
 // ===========================================
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
-// Try different import patterns for your database connection
-import dbConnect from '../../../lib/mongodb'; // Most common pattern
-// Alternative patterns if the above doesn't work:
-// import { connectToDatabase } from '../../../lib/mongodb';
-// import clientPromise from '../../../lib/mongodb';
-
+import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
 import Team from '../../../models/Team';
-import Transfer from '../../../models/Transfer'; // ADDED for auto transfer creation
+import Transfer from '../../../models/Transfer';
 import Season from '../../../models/Season';
 import mongoose from 'mongoose';
 
@@ -23,10 +18,7 @@ export default async function handler(req, res) {
       return res.status(403).json({ message: 'Access denied. Admin rights required.' });
     }
 
-    // Try the most common database connection pattern
     await dbConnect();
-    // Alternative if using different pattern:
-    // await connectToDatabase();
 
     switch (req.method) {
       case 'GET':
@@ -50,17 +42,15 @@ export default async function handler(req, res) {
   }
 }
 
-// ADDED: Helper function to create transfer records automatically
+// Helper function to create transfer records automatically
 async function createTransferRecord(playerId, oldTeamId, newTeamId, transferType = 'registration') {
   try {
-    // Get active season
     const activeSeason = await Season.findOne({ isActive: true });
     if (!activeSeason) {
       console.warn('No active season found - skipping transfer record creation');
       return;
     }
 
-    // Determine transfer type and notes
     let notes = '';
     if (transferType === 'registration') {
       if (newTeamId) {
@@ -89,22 +79,19 @@ async function createTransferRecord(playerId, oldTeamId, newTeamId, transferType
       notes: notes
     };
 
-    console.log('✅ Creating transfer record:', transferData);
-
     const transfer = new Transfer(transferData);
     await transfer.save();
     
     console.log('✅ Transfer record created successfully:', transfer._id);
   } catch (transferError) {
     console.error('❌ Transfer creation failed (non-fatal):', transferError);
-    // Don't throw - this is non-fatal
   }
 }
 
-// GET - Fetch players with filters
+// GET - Fetch players with filters (UPDATED with contract filtering)
 async function getPlayers(req, res) {
   try {
-    const { seasonId, teamId, search } = req.query;
+    const { seasonId, teamId, contractStatus, search } = req.query;
     
     let query = {};
     
@@ -127,11 +114,18 @@ async function getPlayers(req, res) {
     if (teamId && teamId !== 'all') {
       if (teamId === 'free-agents') {
         query.currentTeam = null;
-        if (query.$or) delete query.$or; // Remove season-based filtering
+        if (query.$or) delete query.$or;
       } else {
         query.currentTeam = new mongoose.Types.ObjectId(teamId);
-        if (query.$or) delete query.$or; // Remove season-based filtering
+        if (query.$or) delete query.$or;
       }
+    }
+    
+    // NEW: Add contract status filter
+    if (contractStatus && contractStatus !== 'all') {
+      query.contractStatus = contractStatus;
+      // Override previous team filtering for contract-specific queries
+      if (query.$or) delete query.$or;
     }
     
     // Add search filter
@@ -145,6 +139,8 @@ async function getPlayers(req, res) {
 
     const players = await Player.find(query)
       .populate('currentTeam', 'name logo')
+      .populate('currentContract.team', 'name logo') // NEW: Populate contract team
+      .populate('currentContract.season', 'name isActive') // NEW: Populate contract season
       .sort({ name: 1 })
       .lean();
 
@@ -167,6 +163,11 @@ async function getPlayers(req, res) {
       notes: player.notes,
       emergencyContact: player.emergencyContact,
       medicalInfo: player.medicalInfo,
+      
+      // NEW: Contract information
+      contractStatus: player.contractStatus || 'free_agent',
+      currentContract: player.currentContract || null,
+      
       careerStats: player.careerStats || {
         appearances: 0,
         goals: 0,
@@ -179,7 +180,7 @@ async function getPlayers(req, res) {
       updatedAt: player.updatedAt
     }));
 
-    console.log(`Admin fetched ${processedPlayers.length} players`);
+    console.log(`Admin fetched ${processedPlayers.length} players with contract filter: ${contractStatus || 'none'}`);
     
     return res.status(200).json(processedPlayers);
   } catch (error) {
@@ -188,7 +189,7 @@ async function getPlayers(req, res) {
   }
 }
 
-// POST - Create new player with minimal requirements - UPDATED with auto transfer creation
+// POST - Create new player with minimal requirements and contract handling
 async function createPlayer(req, res) {
   try {
     console.log('Creating player with data:', {
@@ -198,7 +199,6 @@ async function createPlayer(req, res) {
 
     const { name } = req.body;
 
-    // Only require name for now
     if (!name || name.trim() === '') {
       return res.status(400).json({ message: 'Player name is required' });
     }
@@ -206,6 +206,8 @@ async function createPlayer(req, res) {
     // Create minimal player data
     const playerData = {
       name: name.trim(),
+      contractStatus: 'free_agent', // NEW: Default contract status
+      currentContract: {}, // NEW: Empty contract object
       careerStats: {
         appearances: 0,
         goals: 0,
@@ -246,6 +248,20 @@ async function createPlayer(req, res) {
     
     if (req.body.currentTeam && mongoose.Types.ObjectId.isValid(req.body.currentTeam)) {
       playerData.currentTeam = new mongoose.Types.ObjectId(req.body.currentTeam);
+      // NEW: If assigned to team, create basic normal contract
+      const activeSeason = await Season.findOne({ isActive: true });
+      if (activeSeason) {
+        playerData.contractStatus = 'normal';
+        playerData.currentContract = {
+          team: playerData.currentTeam,
+          season: activeSeason._id,
+          contractType: 'normal',
+          startDate: new Date(),
+          endDate: null, // Open-ended
+          contractValue: 0,
+          notes: 'Initial team assignment'
+        };
+      }
     }
     
     if (req.body.photo) {
@@ -260,6 +276,11 @@ async function createPlayer(req, res) {
       playerData.idCardNumber = req.body.idCardNumber.trim();
     }
 
+    // NEW: Handle emergency contact
+    if (req.body.emergencyContact) {
+      playerData.emergencyContact = req.body.emergencyContact;
+    }
+
     console.log('Final player data for creation:', {
       ...playerData,
       idCardNumber: playerData.idCardNumber ? '***HIDDEN***' : undefined
@@ -270,7 +291,7 @@ async function createPlayer(req, res) {
 
     console.log('✅ Player created successfully:', savedPlayer._id);
 
-    // ADDED: Auto-create transfer record for new player
+    // Auto-create transfer record for new player
     await createTransferRecord(
       savedPlayer._id, 
       null, 
@@ -281,6 +302,8 @@ async function createPlayer(req, res) {
     // Populate the result for response
     const populatedPlayer = await Player.findById(savedPlayer._id)
       .populate('currentTeam', 'name logo')
+      .populate('currentContract.team', 'name logo')
+      .populate('currentContract.season', 'name isActive')
       .lean();
 
     return res.status(201).json({
@@ -300,7 +323,6 @@ async function createPlayer(req, res) {
     }
 
     if (error.code === 11000) {
-      // Handle duplicate key errors
       if (error.keyPattern?.email) {
         return res.status(400).json({ message: 'Email already exists' });
       }
@@ -317,7 +339,7 @@ async function createPlayer(req, res) {
   }
 }
 
-// PUT - Update player - UPDATED with auto transfer creation
+// PUT - Update player (UPDATED with contract awareness)
 async function updatePlayer(req, res) {
   try {
     const { id } = req.body;
@@ -335,12 +357,12 @@ async function updatePlayer(req, res) {
       return res.status(404).json({ message: 'Player not found' });
     }
 
-    // ADDED: Track team changes for transfer record
+    // Track team changes for transfer record
     const oldTeamId = existingPlayer.currentTeam?.toString();
+    const oldContractTeamId = existingPlayer.currentContract?.team?.toString();
 
     const { name } = req.body;
 
-    // Validate required fields
     if (!name || name.trim() === '') {
       return res.status(400).json({ message: 'Player name is required' });
     }
@@ -366,19 +388,69 @@ async function updatePlayer(req, res) {
       }
     });
 
+    // NEW: Handle team assignment changes (update contracts)
+    if (updateData.currentTeam) {
+      const newTeamId = updateData.currentTeam.toString();
+      
+      // If team changed, we need to handle contract updates
+      if (oldTeamId !== newTeamId && oldContractTeamId !== newTeamId) {
+        const activeSeason = await Season.findOne({ isActive: true });
+        
+        if (activeSeason) {
+          // Terminate old contract if exists
+          if (existingPlayer.currentContract && existingPlayer.currentContract.team) {
+            existingPlayer.contractHistory.push({
+              ...existingPlayer.currentContract,
+              status: 'terminated',
+              endDate: new Date()
+            });
+          }
+          
+          // Create new contract
+          updateData.currentContract = {
+            team: updateData.currentTeam,
+            season: activeSeason._id,
+            contractType: 'normal', // Default to normal for admin assignments
+            startDate: new Date(),
+            endDate: null,
+            contractValue: 0,
+            notes: 'Admin team assignment'
+          };
+          
+          updateData.contractStatus = 'normal';
+          
+          // Add to contract history
+          if (!updateData.contractHistory) {
+            updateData.contractHistory = existingPlayer.contractHistory || [];
+          }
+          updateData.contractHistory.push({
+            ...updateData.currentContract,
+            status: 'active'
+          });
+        }
+      }
+    } else if (updateData.currentTeam === null || updateData.currentTeam === '') {
+      // Player released to free agency
+      updateData.contractStatus = 'free_agent';
+      updateData.currentContract = {};
+      updateData.currentTeam = null;
+    }
+
     const updatedPlayer = await Player.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
-    ).populate('currentTeam', 'name logo');
+    ).populate('currentTeam', 'name logo')
+     .populate('currentContract.team', 'name logo')
+     .populate('currentContract.season', 'name isActive');
 
     console.log('✅ Player updated successfully:', updatedPlayer._id);
 
-    // ADDED: Auto-create transfer record if team changed
+    // Auto-create transfer record if team changed
     const newTeamId = updatedPlayer.currentTeam?._id?.toString();
-    if (oldTeamId !== newTeamId) {
-      console.log('🔄 Team changed, creating transfer record:', { oldTeamId, newTeamId });
-      await createTransferRecord(id, oldTeamId, newTeamId);
+    if (oldTeamId !== newTeamId || oldContractTeamId !== newTeamId) {
+      console.log('🔄 Team changed, creating transfer record:', { oldTeamId, oldContractTeamId, newTeamId });
+      await createTransferRecord(id, oldTeamId || oldContractTeamId, newTeamId);
     }
 
     return res.status(200).json({
@@ -426,7 +498,7 @@ async function deletePlayer(req, res) {
     await Player.findByIdAndDelete(id);
 
     console.log('✅ Player deleted successfully:', id);
-    // Note: We preserve transfer records for historical data
+    // Note: We preserve transfer and contract records for historical data
 
     return res.status(200).json({
       message: 'Player deleted successfully'
