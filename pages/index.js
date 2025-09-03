@@ -1,4 +1,4 @@
-// FILE: pages/index.js (Fixed with correct player name fields)
+// FILE: pages/index.js (Fixed with better error handling and debug logs)
 // ===========================================
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -17,6 +17,7 @@ export default function Home() {
     totalMatches: 0,
     totalGoals: 0,
   });
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     fetchHomeData();
@@ -24,78 +25,143 @@ export default function Home() {
 
   const fetchHomeData = async () => {
     try {
+      console.log('Fetching home page data...');
+      setIsLoading(true);
+      
       // Fetch live match
-      const liveResponse = await fetch('/api/public/matches?status=live');
-      if (liveResponse.ok) {
-        const liveData = await liveResponse.json();
-        if (Array.isArray(liveData) && liveData.length > 0) {
-          setLiveMatch(liveData[0]);
+      try {
+        const liveResponse = await fetch('/api/public/matches?status=live');
+        if (liveResponse.ok) {
+          const liveData = await liveResponse.json();
+          if (Array.isArray(liveData) && liveData.length > 0) {
+            setLiveMatch(liveData[0]);
+            console.log('Live match found:', liveData[0]);
+          }
         }
+      } catch (error) {
+        console.error('Error fetching live matches:', error);
       }
 
       // Fetch recent transfers
-      const transfersResponse = await fetch('/api/public/transfers?limit=5');
-      if (transfersResponse.ok) {
-        const transfersData = await transfersResponse.json();
-        setRecentTransfers(Array.isArray(transfersData) ? transfersData : []);
+      try {
+        const transfersResponse = await fetch('/api/public/transfers?limit=5');
+        if (transfersResponse.ok) {
+          const transfersData = await transfersResponse.json();
+          setRecentTransfers(Array.isArray(transfersData) ? transfersData : []);
+          console.log('Recent transfers:', transfersData?.length || 0);
+        }
+      } catch (error) {
+        console.error('Error fetching transfers:', error);
       }
 
       // Fetch standings - using teams API as fallback
-      const standingsResponse = await fetch('/api/public/standings?limit=5');
-      if (standingsResponse.ok) {
-        const standingsData = await standingsResponse.json();
-        setStandings(Array.isArray(standingsData) ? standingsData : []);
-      } else {
-        // Fallback to teams data
-        const teamsResponse = await fetch('/api/public/teams?limit=5');
-        if (teamsResponse.ok) {
-          const teamsData = await teamsResponse.json();
-          setStandings(Array.isArray(teamsData) ? teamsData : []);
+      try {
+        const standingsResponse = await fetch('/api/public/standings?limit=5');
+        if (standingsResponse.ok) {
+          const standingsData = await standingsResponse.json();
+          setStandings(Array.isArray(standingsData) ? standingsData : []);
+          console.log('Standings:', standingsData?.length || 0);
+        } else {
+          // Fallback to teams data
+          const teamsResponse = await fetch('/api/public/teams?limit=5');
+          if (teamsResponse.ok) {
+            const teamsData = await teamsResponse.json();
+            setStandings(Array.isArray(teamsData) ? teamsData : []);
+            console.log('Teams fallback:', teamsData?.length || 0);
+          }
         }
+      } catch (error) {
+        console.error('Error fetching standings:', error);
       }
 
       // Fetch upcoming matches
-      const matchesResponse = await fetch('/api/public/matches?status=scheduled&limit=3');
-      if (matchesResponse.ok) {
-        const matchesData = await matchesResponse.json();
-        setUpcomingMatches(Array.isArray(matchesData) ? matchesData : []);
+      try {
+        const matchesResponse = await fetch('/api/public/matches?status=scheduled&limit=3');
+        if (matchesResponse.ok) {
+          const matchesData = await matchesResponse.json();
+          setUpcomingMatches(Array.isArray(matchesData) ? matchesData : []);
+          console.log('Upcoming matches:', matchesData?.length || 0);
+        }
+      } catch (error) {
+        console.error('Error fetching upcoming matches:', error);
       }
 
-      // Fetch statistics
-      const statsResponse = await fetch('/api/public/stats');
-      if (statsResponse.ok) {
-        const statsData = await statsResponse.json();
-        setStats({
-          totalTeams: statsData.totalTeams || 0,
-          totalPlayers: statsData.totalPlayers || 0,
-          totalMatches: statsData.totalMatches || 0,
-          totalGoals: statsData.totalGoals || 0,
-        });
-      } else {
-        // Fallback stats calculation
-        const [teamsRes, playersRes] = await Promise.all([
-          fetch('/api/public/teams'),
-          fetch('/api/public/players')
-        ]);
-        
-        if (teamsRes.ok && playersRes.ok) {
-          const [teams, players] = await Promise.all([
-            teamsRes.json(),
-            playersRes.json()
+      // Fetch statistics - TRY BOTH PUBLIC AND FALLBACK
+      try {
+        console.log('Fetching statistics...');
+        const statsResponse = await fetch('/api/public/stats');
+        if (statsResponse.ok) {
+          const statsData = await statsResponse.json();
+          console.log('Public stats API response:', statsData);
+          setStats({
+            totalTeams: statsData.totalTeams || 0,
+            totalPlayers: statsData.totalPlayers || 0,
+            totalMatches: statsData.totalMatches || 0,
+            totalGoals: statsData.totalGoals || 0,
+          });
+        } else {
+          console.log('Public stats failed, using fallback calculation');
+          // Fallback stats calculation
+          const [teamsRes, playersRes] = await Promise.all([
+            fetch('/api/public/teams'),
+            fetch('/api/public/players')
           ]);
           
-          setStats({
-            totalTeams: Array.isArray(teams) ? teams.length : 0,
-            totalPlayers: Array.isArray(players) ? players.length : 0,
-            totalMatches: 0,
-            totalGoals: Array.isArray(players) ? players.reduce((sum, p) => sum + (p.stats?.goals || 0), 0) : 0,
-          });
+          if (teamsRes.ok && playersRes.ok) {
+            const [teams, players] = await Promise.all([
+              teamsRes.json(),
+              playersRes.json()
+            ]);
+            
+            console.log('Fallback data:', {
+              teams: Array.isArray(teams) ? teams.length : 'not array',
+              players: Array.isArray(players) ? players.length : 'not array'
+            });
+            
+            setStats({
+              totalTeams: Array.isArray(teams) ? teams.length : 0,
+              totalPlayers: Array.isArray(players) ? players.length : 0,
+              totalMatches: 0,
+              totalGoals: Array.isArray(players) ? players.reduce((sum, p) => sum + (p.stats?.goals || 0), 0) : 0,
+            });
+          } else {
+            console.error('Fallback stats failed too');
+            setStats({
+              totalTeams: 0,
+              totalPlayers: 0,
+              totalMatches: 0,
+              totalGoals: 0,
+            });
+          }
         }
+      } catch (error) {
+        console.error('Error fetching statistics:', error);
+        setStats({
+          totalTeams: 0,
+          totalPlayers: 0,
+          totalMatches: 0,
+          totalGoals: 0,
+        });
       }
+
+      console.log('Home data fetch completed');
     } catch (error) {
-      console.error('Error fetching home data:', error);
+      console.error('Error in fetchHomeData:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8">
