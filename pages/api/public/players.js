@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/public/players.js (ENHANCED - Better Season & Free Agent Support)
+// FILE: pages/api/public/players.js (FIXED - Free Agents Always Visible)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
@@ -9,15 +9,15 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
-
+  
   await dbConnect();
-
+  
   try {
     const { seasonId, teamId, search } = req.query;
     
     let query = { status: { $in: ['active', 'injured', 'suspended'] } }; // Only show active players
     
-    // Filter by season - ENHANCED LOGIC
+    // Filter by season - FIXED TO INCLUDE FREE AGENTS
     if (seasonId && seasonId !== 'all') {
       const teams = await Team.find({ season: seasonId }).select('_id');
       const teamIds = teams.map(team => team._id);
@@ -77,7 +77,7 @@ export default async function handler(req, res) {
       teamSeason: p.currentTeam?.season 
     })));
 
-    // Transform data for public consumption - ENHANCED WITH BETTER DEFAULTS
+    // Transform data for public consumption - MATCH YOUR EXISTING FORMAT
     const publicPlayers = players.map(player => ({
       _id: player._id,
       name: player.name,
@@ -89,7 +89,9 @@ export default async function handler(req, res) {
       weight: player.weight,
       photo: normalizePhoto(player.photo), // Normalize photo data
       currentTeam: player.currentTeam ? {
-        ...player.currentTeam,
+        _id: player.currentTeam._id,
+        name: player.currentTeam.name,
+        season: player.currentTeam.season,
         logo: normalizePhoto(player.currentTeam.logo)
       } : null,
       status: player.status,
