@@ -1,34 +1,35 @@
 // ===========================================
-// FILE: models/FairPlayRecord.js (NEW MODEL)
+// FILE: models/FairPlay.js (NEW - Fair Play Model)
 // ===========================================
 import mongoose from 'mongoose';
 
-const fairPlayRecordSchema = new mongoose.Schema({
-  // Core Information
-  team: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Team',
-    required: true
+const fairPlaySchema = new mongoose.Schema({
+  team: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Team', 
+    required: true 
   },
-  player: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Player',
-    default: null // Null means it's a team-wide penalty
+  player: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Player' 
+    // Optional - null for team-level penalties
   },
-  season: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Season',
-    required: true
+  season: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Season', 
+    required: true 
   },
-  
-  // Action Details
+  match: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Match' 
+    // Optional - may not be match-related
+  },
   actionType: {
     type: String,
-    required: true,
     enum: [
       'violent_conduct',
       'serious_foul_play',
-      'offensive_language',
+      'offensive_language', 
       'dissent_by_word_action',
       'unsporting_behavior',
       'referee_abuse',
@@ -37,84 +38,70 @@ const fairPlayRecordSchema = new mongoose.Schema({
       'misconduct_off_field',
       'suspended_player_participated',
       'other'
-    ]
+    ],
+    required: true
   },
   points: {
     type: Number,
     required: true,
-    min: 1 // Must be positive
+    min: 1,
+    max: 100,
+    default: 5
   },
   description: {
     type: String,
     required: true,
-    maxlength: 500
+    maxLength: 500
   },
   actionDate: {
     type: Date,
+    required: true,
     default: Date.now
   },
   reference: {
     type: String, // Case/incident reference number
-    default: null
-  },
-  
-  // Administrative
-  addedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    trim: true
   },
   status: {
     type: String,
     enum: ['active', 'appealed', 'overturned', 'reduced'],
     default: 'active'
   },
-  
-  // Appeal Information (if applicable)
   appealDate: {
-    type: Date,
-    default: null
-  },
-  appealResult: {
-    type: String,
-    enum: ['pending', 'upheld', 'reduced', 'overturned'],
-    default: null
-  },
-  originalPoints: {
-    type: Number,
-    default: null // Store original points if reduced on appeal
+    type: Date
   },
   appealNotes: {
     type: String,
-    default: null
+    maxLength: 500
+  },
+  originalPoints: {
+    type: Number // Store original points if reduced
+  },
+  createdBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
   }
 }, {
   timestamps: true
 });
 
-// Indexes for efficient queries
-fairPlayRecordSchema.index({ team: 1, season: 1 });
-fairPlayRecordSchema.index({ player: 1, season: 1 });
-fairPlayRecordSchema.index({ season: 1, actionDate: -1 });
-fairPlayRecordSchema.index({ status: 1 });
+// Indexes for better performance
+fairPlaySchema.index({ team: 1, season: 1 });
+fairPlaySchema.index({ player: 1, season: 1 });
+fairPlaySchema.index({ season: 1, actionDate: -1 });
+fairPlaySchema.index({ status: 1 });
 
-// Virtual for display name
-fairPlayRecordSchema.virtual('displayName').get(function() {
-  if (this.player) {
-    return `${this.player.name} (Individual)`;
+// Virtual for effective points (considers status)
+fairPlaySchema.virtual('effectivePoints').get(function() {
+  switch (this.status) {
+    case 'overturned':
+      return 0;
+    case 'reduced':
+      return this.points; // Current points after reduction
+    default:
+      return this.points;
   }
-  return `${this.team.name} (Team)`;
 });
 
-// Ensure virtuals are included in JSON
-fairPlayRecordSchema.set('toJSON', { virtuals: true });
-fairPlayRecordSchema.set('toObject', { virtuals: true });
-
-// Middleware to log fair play actions
-fairPlayRecordSchema.post('save', function(doc) {
-  console.log(`Fair Play Record created: ${doc.actionType} - ${doc.points} points for ${doc.team}`);
-});
-
-const FairPlayRecord = mongoose.models.FairPlayRecord || mongoose.model('FairPlayRecord', fairPlayRecordSchema);
-
-export default FairPlayRecord;
+export default mongoose.models.FairPlay || mongoose.model('FairPlay', fairPlaySchema);
