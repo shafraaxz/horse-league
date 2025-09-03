@@ -1,9 +1,10 @@
-// FILE: pages/api/admin/fairplay.js (NEW - Fair Play API)
+// ===========================================
+// FILE: pages/api/admin/fairplay.js (CLEAN VERSION)
 // ===========================================
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
 import { connectToDatabase } from '../../../lib/mongodb';
-import FairPlay from '../../../models/FairPlay';
+import FairPlayRecord from '../../../models/FairPlayRecord';
 import Player from '../../../models/Player';
 import Team from '../../../models/Team';
 import Season from '../../../models/Season';
@@ -65,12 +66,11 @@ async function getFairPlayRecords(req, res, session) {
       query.status = status;
     }
 
-    const records = await FairPlay.find(query)
+    const records = await FairPlayRecord.find(query)
       .populate('team', 'name logo')
       .populate('player', 'name jerseyNumber photo')
       .populate('season', 'name')
-      .populate('match', 'homeTeam awayTeam matchDate')
-      .populate('createdBy', 'name')
+      .populate('addedBy', 'name')
       .sort({ actionDate: -1, createdAt: -1 })
       .limit(parseInt(limit))
       .lean();
@@ -91,7 +91,6 @@ async function createFairPlayRecord(req, res, session) {
       team,
       player,
       season,
-      match,
       actionType,
       points,
       description,
@@ -114,10 +113,6 @@ async function createFairPlayRecord(req, res, session) {
 
     if (player && !mongoose.Types.ObjectId.isValid(player)) {
       return res.status(400).json({ message: 'Invalid player ID' });
-    }
-
-    if (match && !mongoose.Types.ObjectId.isValid(match)) {
-      return res.status(400).json({ message: 'Invalid match ID' });
     }
 
     // Validate team exists
@@ -159,8 +154,8 @@ async function createFairPlayRecord(req, res, session) {
       points: parseInt(points),
       description: description.trim(),
       actionDate: actionDate || new Date(),
-      reference: reference?.trim() || undefined,
-      createdBy: new mongoose.Types.ObjectId(session.user.id),
+      reference: reference?.trim() || null,
+      addedBy: new mongoose.Types.ObjectId(session.user.id),
       status: 'active'
     };
 
@@ -169,19 +164,15 @@ async function createFairPlayRecord(req, res, session) {
       recordData.player = new mongoose.Types.ObjectId(player);
     }
 
-    if (match) {
-      recordData.match = new mongoose.Types.ObjectId(match);
-    }
-
-    const newRecord = new FairPlay(recordData);
+    const newRecord = new FairPlayRecord(recordData);
     const savedRecord = await newRecord.save();
 
     // Populate the result for response
-    const populatedRecord = await FairPlay.findById(savedRecord._id)
+    const populatedRecord = await FairPlayRecord.findById(savedRecord._id)
       .populate('team', 'name logo')
       .populate('player', 'name jerseyNumber')
       .populate('season', 'name')
-      .populate('createdBy', 'name')
+      .populate('addedBy', 'name')
       .lean();
 
     console.log('Fair play record created:', populatedRecord._id);
@@ -219,7 +210,7 @@ async function updateFairPlayRecord(req, res, session) {
       return res.status(400).json({ message: 'Invalid record ID' });
     }
 
-    const existingRecord = await FairPlay.findById(id);
+    const existingRecord = await FairPlayRecord.findById(id);
     if (!existingRecord) {
       return res.status(404).json({ message: 'Fair play record not found' });
     }
@@ -278,14 +269,14 @@ async function updateFairPlayRecord(req, res, session) {
       updateData.appealNotes = appealNotes.trim();
     }
 
-    const updatedRecord = await FairPlay.findByIdAndUpdate(
+    const updatedRecord = await FairPlayRecord.findByIdAndUpdate(
       id,
       updateData,
       { new: true, runValidators: true }
     ).populate('team', 'name logo')
      .populate('player', 'name jerseyNumber')
      .populate('season', 'name')
-     .populate('createdBy', 'name');
+     .populate('addedBy', 'name');
 
     console.log('Fair play record updated:', updatedRecord._id);
 
