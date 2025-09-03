@@ -1,19 +1,20 @@
+// ===========================================
+// FILE: pages/transfers.js (UPDATED WITH CONTRACT STATUS DISPLAY)
+// ===========================================
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { format } from 'date-fns';
-import { ArrowRight, Calendar, User, AlertCircle, UserPlus, UserMinus } from 'lucide-react';
+import { ArrowRight, Calendar, User, AlertCircle, UserPlus, UserMinus, FileText, Clock } from 'lucide-react';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 
 // Helper function to extract image URL from various formats
 const getImageUrl = (imageData) => {
   if (!imageData) return null;
   
-  // If it's already a string URL
   if (typeof imageData === 'string' && imageData.startsWith('http')) {
     return imageData;
   }
   
-  // If it's an object with url property
   if (imageData && typeof imageData === 'object') {
     return imageData.url || imageData.secure_url || null;
   }
@@ -27,6 +28,7 @@ export default function TransfersPage() {
   const [selectedSeason, setSelectedSeason] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState('all'); // all, registration, transfer, loan, release
+  const [contractFilter, setContractFilter] = useState(''); // NEW: Contract type filter
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -35,7 +37,7 @@ export default function TransfersPage() {
 
   useEffect(() => {
     fetchTransfers();
-  }, [selectedSeason, filter]);
+  }, [selectedSeason, filter, contractFilter]);
 
   const fetchSeasons = async () => {
     try {
@@ -63,20 +65,24 @@ export default function TransfersPage() {
       let url = '/api/public/transfers?limit=50';
       if (selectedSeason) url += `&seasonId=${selectedSeason}`;
       
-      console.log('Fetching transfers from:', url);
-      
       const response = await fetch(url);
       
       if (response.ok) {
         const data = await response.json();
         
-        console.log('Transfers fetch result:', data);
-        
         if (Array.isArray(data)) {
           // Filter by transfer type if needed
-          const filteredData = filter === 'all' 
+          let filteredData = filter === 'all' 
             ? data 
             : data.filter(t => t.transferType === filter);
+            
+          // NEW: Filter by contract type if selected
+          if (contractFilter) {
+            filteredData = filteredData.filter(t => {
+              if (!t.player) return false;
+              return t.player.contractStatus === contractFilter;
+            });
+          }
             
           setTransfers(filteredData);
           console.log(`Loaded ${filteredData.length} transfers`);
@@ -86,8 +92,6 @@ export default function TransfersPage() {
         }
       } else {
         console.error('Failed to fetch transfers:', response.status, response.statusText);
-        
-        // Try to get error details
         try {
           const errorData = await response.text();
           console.error('Error response:', errorData);
@@ -96,7 +100,6 @@ export default function TransfersPage() {
           console.error('Could not parse error response');
           setError('Failed to load transfers');
         }
-        
         setTransfers([]);
       }
     } catch (error) {
@@ -128,33 +131,48 @@ export default function TransfersPage() {
     }
   };
 
+  // NEW: Contract status helpers
+  const getContractStatusColor = (contractStatus) => {
+    switch (contractStatus) {
+      case 'normal': return 'bg-blue-100 text-blue-800';
+      case 'seasonal': return 'bg-purple-100 text-purple-800';
+      case 'free_agent': return 'bg-green-100 text-green-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getContractStatusIcon = (contractStatus) => {
+    switch (contractStatus) {
+      case 'normal': return <FileText className="w-3 h-3" />;
+      case 'seasonal': return <Clock className="w-3 h-3" />;
+      case 'free_agent': return <User className="w-3 h-3" />;
+      default: return <FileText className="w-3 h-3" />;
+    }
+  };
+
   // Helper function to determine transfer direction and create description
   const getTransferInfo = (transfer) => {
     const playerName = transfer.player?.name || 'Unknown Player';
     
     if (!transfer.fromTeam && transfer.toTeam) {
-      // Joining from free agency
       return {
         description: `${playerName} joined ${transfer.toTeam.name}`,
         direction: 'incoming',
         type: 'joining'
       };
     } else if (transfer.fromTeam && !transfer.toTeam) {
-      // Released to free agency
       return {
         description: `${playerName} released from ${transfer.fromTeam.name}`,
         direction: 'outgoing', 
         type: 'release'
       };
     } else if (transfer.fromTeam && transfer.toTeam) {
-      // Team to team transfer
       return {
         description: `${playerName} transferred from ${transfer.fromTeam.name} to ${transfer.toTeam.name}`,
         direction: 'transfer',
         type: 'transfer'
       };
     } else {
-      // Initial registration as free agent
       return {
         description: `${playerName} registered as free agent`,
         direction: 'registration',
@@ -176,18 +194,30 @@ export default function TransfersPage() {
       <div className="flex flex-col space-y-4">
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Transfer Market</h1>
         
-        <div className="flex flex-col space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Transfer Type Filter */}
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="form-input w-full"
+            className="form-input"
           >
-            <option value="all">All Transfers</option>
+            <option value="all">All Transfer Types</option>
             <option value="registration">New Registrations</option>
             <option value="transfer">Team Transfers</option>
             <option value="loan">Loans</option>
             <option value="release">Releases</option>
+          </select>
+          
+          {/* NEW: Contract Status Filter */}
+          <select
+            value={contractFilter}
+            onChange={(e) => setContractFilter(e.target.value)}
+            className="form-input"
+          >
+            <option value="">All Contract Types</option>
+            <option value="free_agent">Free Agents</option>
+            <option value="normal">Normal Contracts</option>
+            <option value="seasonal">Seasonal Contracts</option>
           </select>
           
           {/* Season Filter */}
@@ -195,7 +225,7 @@ export default function TransfersPage() {
             <select
               value={selectedSeason}
               onChange={(e) => setSelectedSeason(e.target.value)}
-              className="form-input w-full"
+              className="form-input sm:col-span-2"
             >
               <option value="">All Seasons</option>
               {seasons.map(season => (
@@ -229,7 +259,7 @@ export default function TransfersPage() {
 
       {/* Transfer Statistics */}
       {transfers.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <div className="card text-center p-3">
             <div className="text-xl mb-1">🆕</div>
             <h3 className="text-lg sm:text-xl font-bold text-green-600">
@@ -262,12 +292,21 @@ export default function TransfersPage() {
             <p className="text-gray-600 text-xs sm:text-sm">Releases</p>
           </div>
           
-          <div className="card text-center p-3 col-span-2 sm:col-span-1">
-            <div className="text-xl mb-1">💰</div>
-            <h3 className="text-sm sm:text-lg font-bold text-purple-600">
-              MVR {transfers.reduce((sum, t) => sum + (t.transferFee || 0), 0).toLocaleString()}
+          {/* NEW: Contract Status Stats */}
+          <div className="card text-center p-3">
+            <div className="text-xl mb-1">📝</div>
+            <h3 className="text-lg sm:text-xl font-bold text-blue-600">
+              {transfers.filter(t => t.player?.contractStatus === 'normal').length}
             </h3>
-            <p className="text-gray-600 text-xs sm:text-sm">Total Value</p>
+            <p className="text-gray-600 text-xs sm:text-sm">Normal</p>
+          </div>
+          
+          <div className="card text-center p-3">
+            <div className="text-xl mb-1">⏰</div>
+            <h3 className="text-lg sm:text-xl font-bold text-purple-600">
+              {transfers.filter(t => t.player?.contractStatus === 'seasonal').length}
+            </h3>
+            <p className="text-gray-600 text-xs sm:text-sm">Seasonal</p>
           </div>
         </div>
       )}
@@ -311,9 +350,27 @@ export default function TransfersPage() {
                       </div>
                       
                       <div className="min-w-0 flex-1">
-                        <h3 className="text-sm sm:text-base font-semibold text-gray-900 truncate">
-                          {transfer.player?.name || 'Unknown Player (Deleted)'}
-                        </h3>
+                        <div className="flex items-center space-x-2 mb-1">
+                          <h3 className="text-sm sm:text-base font-semibold text-gray-900 truncate">
+                            {transfer.player?.name || 'Unknown Player (Deleted)'}
+                          </h3>
+                          
+                          {/* NEW: Contract Status Badge */}
+                          {transfer.player?.contractStatus && (
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                              getContractStatusColor(transfer.player.contractStatus)
+                            }`}>
+                              {getContractStatusIcon(transfer.player.contractStatus)}
+                              <span className="ml-1">
+                                {transfer.player.contractStatus === 'free_agent' ? 'FA' :
+                                 transfer.player.contractStatus === 'normal' ? 'N' :
+                                 transfer.player.contractStatus === 'seasonal' ? 'S' : 
+                                 '?'}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                        
                         <p className="text-gray-600 text-xs sm:text-sm">{transfer.player?.position || 'Player'}</p>
                         <p className="text-gray-500 text-xs hidden sm:block">{transferInfo.description}</p>
                         {!transfer.player && (
@@ -439,21 +496,41 @@ export default function TransfersPage() {
         )}
       </div>
 
-      {/* Transfer Market Info */}
+      {/* Transfer Market Info - UPDATED with Contract Information */}
       <div className="card bg-blue-50 border border-blue-200">
         <div className="flex items-start space-x-4">
           <div className="text-blue-600 text-2xl">ℹ️</div>
           <div>
-            <h3 className="text-lg font-semibold text-blue-900 mb-2">Transfer Market Rules</h3>
-            <ul className="text-blue-800 text-sm space-y-1">
-              <li>• All players must be registered before joining a team</li>
-              <li>• Players can be released to free agency at any time</li>
-              <li>• Free agents can join any team during transfer windows</li>
-              <li>• Transfer windows are managed by season administrators</li>
-              <li>• Loan transfers are temporary and players return after the season</li>
-              <li>• Transfer fees are optional but tracked for records</li>
-              <li>• All transfers maintain complete history for transparency</li>
-            </ul>
+            <h3 className="text-lg font-semibold text-blue-900 mb-2">Transfer Market & Contract Rules</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h4 className="font-semibold text-blue-800 mb-2">Transfer Rules</h4>
+                <ul className="text-blue-800 text-sm space-y-1">
+                  <li>• All players must be registered before joining a team</li>
+                  <li>• Players can be released to free agency at any time</li>
+                  <li>• Free agents can join any team during transfer windows</li>
+                  <li>• Transfer windows are managed by season administrators</li>
+                  <li>• Transfer fees are optional but tracked for records</li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-semibold text-blue-800 mb-2">Contract Types</h4>
+                <ul className="text-blue-800 text-sm space-y-1">
+                  <li className="flex items-center space-x-2">
+                    <FileText className="w-4 h-4" />
+                    <span><strong>Normal:</strong> Mid-season transfers allowed</span>
+                  </li>
+                  <li className="flex items-center space-x-2">
+                    <Clock className="w-4 h-4" />
+                    <span><strong>Seasonal:</strong> Transfers only at season end</span>
+                  </li>
+                  <li className="flex items-center space-x-2">
+                    <User className="w-4 h-4" />
+                    <span><strong>Free Agent:</strong> Available for immediate signing</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
         </div>
       </div>
