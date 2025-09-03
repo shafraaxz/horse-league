@@ -279,141 +279,150 @@ export default function TransfersPage() {
             const transferInfo = getTransferInfo(transfer);
             
             return (
-              <div key={transfer._id} className="border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-center space-x-4">
-                    {/* Player Photo */}
-                    {transfer.player && getImageUrl(transfer.player.photo) ? (
-                      <Image
-                        src={getImageUrl(transfer.player.photo)}
-                        alt={transfer.player?.name || 'Player'}
-                        width={50}
-                        height={50}
-                        className="rounded-full object-cover"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                          if (e.target.nextSibling) {
-                            e.target.nextSibling.style.display = 'flex';
-                          }
-                        }}
-                      />
-                    ) : null}
-                    
-                    {/* Fallback avatar */}
-                    <div 
-                      className={`w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center ${
-                        transfer.player && getImageUrl(transfer.player.photo) ? 'hidden' : 'flex'
-                      }`}
-                    >
-                      <User className="w-6 h-6 text-gray-400" />
-                    </div>
-                    
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {transfer.player?.name || 'Unknown Player (Deleted)'}
-                      </h3>
-                      <p className="text-gray-600">{transfer.player?.position || 'Player'}</p>
-                      <p className="text-sm text-gray-500">{transferInfo.description}</p>
-                      {!transfer.player && (
-                        <p className="text-red-500 text-sm">⚠️ Player data unavailable</p>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center space-x-4">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getTransferTypeColor(transfer.transferType)}`}>
-                      {getTransferTypeIcon(transfer.transferType)} {transfer.transferType?.toUpperCase() || 'TRANSFER'}
-                    </span>
-                    <div className="text-right">
-                      <div className="flex items-center text-gray-600">
-                        <Calendar className="w-4 h-4 mr-1" />
-                        {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
-                      </div>
-                      {transfer.transferFee > 0 && (
-                        <div className="flex items-center text-green-600 font-medium">
-                          <span className="text-lg mr-1">💰</span>
-                          MVR {transfer.transferFee.toLocaleString()}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-center space-x-6">
-                  {/* From Side */}
-                  {transfer.fromTeam ? (
-                    <div className="flex items-center space-x-3">
-                      {getImageUrl(transfer.fromTeam.logo) ? (
+              <div key={transfer._id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div className="flex flex-col space-y-4">
+                  {/* Mobile: Top section with player info and transfer type */}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center space-x-3 flex-1">
+                      {/* Player Photo */}
+                      {transfer.player && getImageUrl(transfer.player.photo) ? (
                         <Image
-                          src={getImageUrl(transfer.fromTeam.logo)}
-                          alt={transfer.fromTeam.name}
+                          src={getImageUrl(transfer.player.photo)}
+                          alt={transfer.player?.name || 'Player'}
                           width={40}
                           height={40}
-                          className="rounded-full object-cover"
-                          onError={(e) => e.target.style.display = 'none'}
+                          className="rounded-full object-cover flex-shrink-0"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            if (e.target.nextSibling) {
+                              e.target.nextSibling.style.display = 'flex';
+                            }
+                          }}
                         />
-                      ) : (
-                        <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                          <User className="w-5 h-5 text-gray-400" />
+                      ) : null}
+                      
+                      {/* Fallback avatar */}
+                      <div 
+                        className={`w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          transfer.player && getImageUrl(transfer.player.photo) ? 'hidden' : 'flex'
+                        }`}
+                      >
+                        <User className="w-5 h-5 text-gray-400" />
+                      </div>
+                      
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm sm:text-base font-semibold text-gray-900 truncate">
+                          {transfer.player?.name || 'Unknown Player (Deleted)'}
+                        </h3>
+                        <p className="text-gray-600 text-xs sm:text-sm">{transfer.player?.position || 'Player'}</p>
+                        <p className="text-gray-500 text-xs hidden sm:block">{transferInfo.description}</p>
+                        {!transfer.player && (
+                          <p className="text-red-500 text-xs">⚠️ Player data unavailable</p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-col items-end space-y-2">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getTransferTypeColor(transfer.transferType)}`}>
+                        {getTransferTypeIcon(transfer.transferType)} {transfer.transferType?.toUpperCase() || 'TRANSFER'}
+                      </span>
+                      <div className="text-right">
+                        <div className="flex items-center text-gray-600 text-xs">
+                          <Calendar className="w-3 h-3 mr-1" />
+                          {format(new Date(transfer.transferDate), 'MMM dd')}
                         </div>
-                      )}
-                      <div className="text-center">
-                        <p className="font-medium text-gray-900">{transfer.fromTeam.name}</p>
-                        <p className="text-sm text-gray-600">From</p>
+                        {transfer.transferFee > 0 && (
+                          <div className="flex items-center text-green-600 font-medium text-xs">
+                            <span className="text-sm mr-1">💰</span>
+                            MVR {transfer.transferFee.toLocaleString()}
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ) : (
-                    <div className="text-center">
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-2">
-                        <UserPlus className="w-5 h-5 text-blue-600" />
-                      </div>
-                      <p className="font-medium text-blue-900">Free Agency</p>
-                      <p className="text-sm text-blue-600">From</p>
-                    </div>
-                  )}
+                  </div>
 
-                  <ArrowRight className="w-6 h-6 text-gray-400" />
+                  {/* Mobile description on small screens */}
+                  <div className="sm:hidden">
+                    <p className="text-gray-500 text-xs">{transferInfo.description}</p>
+                  </div>
 
-                  {/* To Side */}
-                  {transfer.toTeam ? (
-                    <div className="flex items-center space-x-3">
-                      {getImageUrl(transfer.toTeam.logo) ? (
-                        <Image
-                          src={getImageUrl(transfer.toTeam.logo)}
-                          alt={transfer.toTeam.name}
-                          width={40}
-                          height={40}
-                          className="rounded-full object-cover"
-                          onError={(e) => e.target.style.display = 'none'}
-                        />
-                      ) : (
-                        <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
-                          <User className="w-5 h-5 text-gray-400" />
+                  {/* Transfer flow visualization */}
+                  <div className="flex items-center justify-center space-x-3 sm:space-x-6">
+                    {/* From Side */}
+                    {transfer.fromTeam ? (
+                      <div className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-2 flex-1">
+                        {getImageUrl(transfer.fromTeam.logo) ? (
+                          <Image
+                            src={getImageUrl(transfer.fromTeam.logo)}
+                            alt={transfer.fromTeam.name}
+                            width={32}
+                            height={32}
+                            className="rounded-full object-cover"
+                            onError={(e) => e.target.style.display = 'none'}
+                          />
+                        ) : (
+                          <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
+                            <User className="w-4 h-4 text-gray-400" />
+                          </div>
+                        )}
+                        <div className="text-center sm:text-left">
+                          <p className="font-medium text-gray-900 text-xs truncate max-w-20 sm:max-w-none">{transfer.fromTeam.name}</p>
+                          <p className="text-gray-600 text-xs">From</p>
                         </div>
-                      )}
-                      <div className="text-center">
-                        <p className="font-medium text-gray-900">{transfer.toTeam.name}</p>
-                        <p className="text-sm text-gray-600">To</p>
                       </div>
-                    </div>
-                  ) : (
-                    <div className="text-center">
-                      <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-2">
-                        <UserMinus className="w-5 h-5 text-red-600" />
+                    ) : (
+                      <div className="text-center flex-1">
+                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-1">
+                          <UserPlus className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <p className="font-medium text-blue-900 text-xs">Free Agency</p>
+                        <p className="text-blue-600 text-xs">From</p>
                       </div>
-                      <p className="font-medium text-red-900">Free Agency</p>
-                      <p className="text-sm text-red-600">To</p>
+                    )}
+
+                    <ArrowRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+
+                    {/* To Side */}
+                    {transfer.toTeam ? (
+                      <div className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-2 flex-1">
+                        {getImageUrl(transfer.toTeam.logo) ? (
+                          <Image
+                            src={getImageUrl(transfer.toTeam.logo)}
+                            alt={transfer.toTeam.name}
+                            width={32}
+                            height={32}
+                            className="rounded-full object-cover"
+                            onError={(e) => e.target.style.display = 'none'}
+                          />
+                        ) : (
+                          <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
+                            <User className="w-4 h-4 text-gray-400" />
+                          </div>
+                        )}
+                        <div className="text-center sm:text-left">
+                          <p className="font-medium text-gray-900 text-xs truncate max-w-20 sm:max-w-none">{transfer.toTeam.name}</p>
+                          <p className="text-gray-600 text-xs">To</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center flex-1">
+                        <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-1">
+                          <UserMinus className="w-4 h-4 text-red-600" />
+                        </div>
+                        <p className="font-medium text-red-900 text-xs">Free Agency</p>
+                        <p className="text-red-600 text-xs">To</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {transfer.notes && (
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <p className="text-xs sm:text-sm text-gray-700">
+                        <strong>Notes:</strong> {transfer.notes}
+                      </p>
                     </div>
                   )}
                 </div>
-
-                {transfer.notes && (
-                  <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-                    <p className="text-sm text-gray-700">
-                      <strong>Notes:</strong> {transfer.notes}
-                    </p>
-                  </div>
-                )}
               </div>
             );
           })}
