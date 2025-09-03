@@ -522,33 +522,78 @@ export default function PlayerProfile() {
 
         {activeTab === 'matches' && (
           <div className="card">
-            <h3 className="text-lg font-semibold mb-6">Match History</h3>
+            <h3 className="text-lg font-semibold mb-6">Team Match History</h3>
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-blue-800 text-sm">
+                <strong>Note:</strong> Currently showing matches from {player.currentTeam?.name || "the player's team"}. 
+                Individual player participation tracking is not yet implemented.
+              </p>
+            </div>
             {playerMatches.length > 0 ? (
               <div className="space-y-4">
-                {playerMatches.map((match, index) => (
-                  <div key={match._id || index} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="text-sm text-gray-600">
-                          {format(new Date(match.matchDate), 'MMM dd, yyyy')}
-                        </div>
-                        <div className="font-medium">
-                          {match.homeTeam?.name} vs {match.awayTeam?.name}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-3">
-                        {match.status === 'completed' && (
-                          <div className="font-bold">
-                            {match.homeScore} - {match.awayScore}
+                {playerMatches.map((match, index) => {
+                  const isPlayerTeamHome = match.homeTeam?._id === player.currentTeam?._id;
+                  const teamScore = isPlayerTeamHome ? match.homeScore : match.awayScore;
+                  const opponentScore = isPlayerTeamHome ? match.awayScore : match.homeScore;
+                  const opponent = isPlayerTeamHome ? match.awayTeam : match.homeTeam;
+                  
+                  let result = '';
+                  let resultColor = '';
+                  if (match.status === 'completed') {
+                    if (teamScore > opponentScore) {
+                      result = 'W';
+                      resultColor = 'bg-green-100 text-green-800';
+                    } else if (teamScore < opponentScore) {
+                      result = 'L';
+                      resultColor = 'bg-red-100 text-red-800';
+                    } else {
+                      result = 'D';
+                      resultColor = 'bg-yellow-100 text-yellow-800';
+                    }
+                  }
+                  
+                  return (
+                    <div key={match._id || index} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-4">
+                          <div className="text-sm text-gray-600">
+                            {format(new Date(match.matchDate), 'MMM dd, yyyy')}
                           </div>
-                        )}
-                        <Link href={`/matches/${match._id}`} className="text-blue-600 hover:text-blue-800">
-                          View Details
-                        </Link>
+                          <div className="font-medium">
+                            {isPlayerTeamHome ? 'vs' : '@'} {opponent?.name}
+                          </div>
+                          {match.venue && (
+                            <div className="text-sm text-gray-500">
+                              at {match.venue}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          {match.status === 'completed' && (
+                            <>
+                              <div className="font-bold text-lg">
+                                {teamScore} - {opponentScore}
+                              </div>
+                              {result && (
+                                <span className={`px-2 py-1 rounded text-sm font-bold ${resultColor}`}>
+                                  {result}
+                                </span>
+                              )}
+                            </>
+                          )}
+                          {match.status === 'scheduled' && (
+                            <span className="text-blue-600 text-sm">
+                              {format(new Date(match.matchDate), 'HH:mm')}
+                            </span>
+                          )}
+                          <Link href={`/matches/${match._id}`} className="text-blue-600 hover:text-blue-800 text-sm">
+                            View Match
+                          </Link>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-8">
