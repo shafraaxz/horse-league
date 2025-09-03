@@ -265,7 +265,7 @@ export default function TransfersPage() {
           <div className="card text-center">
             <DollarSign className="w-8 h-8 text-purple-600 mx-auto mb-2" />
             <h3 className="text-2xl font-bold text-purple-600">
-              ${transfers.reduce((sum, t) => sum + (t.transferFee || 0), 0).toLocaleString()}
+              MVR {transfers.reduce((sum, t) => sum + (t.transferFee || 0), 0).toLocaleString()}
             </h3>
             <p className="text-gray-600">Total Value</p>
           </div>
