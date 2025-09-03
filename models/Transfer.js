@@ -1,3 +1,6 @@
+// ===========================================
+// FILE: models/Transfer.js (MINIMAL FIX - Just remove required from toTeam)
+// ===========================================
 import mongoose from 'mongoose';
 
 const TransferSchema = new mongoose.Schema({
@@ -14,7 +17,7 @@ const TransferSchema = new mongoose.Schema({
   toTeam: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Team',
-    required: true,
+    default: null, // FIXED: Removed required: true to allow free agent releases
   },
   season: {
     type: mongoose.Schema.Types.ObjectId,
@@ -31,7 +34,7 @@ const TransferSchema = new mongoose.Schema({
   },
   transferType: {
     type: String,
-    enum: ['registration', 'transfer', 'loan'],
+    enum: ['registration', 'transfer', 'loan', 'release'], // Added 'release' for free agent moves
     default: 'registration',
   },
   notes: {
