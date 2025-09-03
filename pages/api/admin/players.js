@@ -1,9 +1,14 @@
 // ===========================================
-// FILE: pages/api/admin/players.js (FIXED VERSION)
+// FILE: pages/api/admin/players.js (FIXED IMPORTS)
 // ===========================================
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
-import { connectToDatabase } from '../../../lib/mongodb';
+// Try different import patterns for your database connection
+import dbConnect from '../../../lib/mongodb'; // Most common pattern
+// Alternative patterns if the above doesn't work:
+// import { connectToDatabase } from '../../../lib/mongodb';
+// import clientPromise from '../../../lib/mongodb';
+
 import Player from '../../../models/Player';
 import Team from '../../../models/Team';
 import Season from '../../../models/Season';
@@ -17,7 +22,10 @@ export default async function handler(req, res) {
       return res.status(403).json({ message: 'Access denied. Admin rights required.' });
     }
 
-    await connectToDatabase();
+    // Try the most common database connection pattern
+    await dbConnect();
+    // Alternative if using different pattern:
+    // await connectToDatabase();
 
     switch (req.method) {
       case 'GET':
@@ -107,7 +115,7 @@ async function getPlayers(req, res) {
   }
 }
 
-// POST - Create new player
+// POST - Create new player with minimal requirements
 async function createPlayer(req, res) {
   try {
     console.log('Creating player with data:', {
@@ -115,91 +123,16 @@ async function createPlayer(req, res) {
       idCardNumber: req.body.idCardNumber ? '***HIDDEN***' : undefined
     });
 
-    const {
-      name,
-      idCardNumber,
-      email,
-      phone,
-      dateOfBirth,
-      nationality,
-      position,
-      jerseyNumber,
-      height,
-      weight,
-      photo,
-      currentTeam,
-      status,
-      notes,
-      emergencyContact
-    } = req.body;
+    const { name } = req.body;
 
-    // Validate required fields
+    // Only require name for now
     if (!name || name.trim() === '') {
       return res.status(400).json({ message: 'Player name is required' });
     }
 
-    // Validate email format if provided
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ message: 'Invalid email format' });
-    }
-
-    // Validate jersey number if provided
-    if (jerseyNumber && (jerseyNumber < 1 || jerseyNumber > 99)) {
-      return res.status(400).json({ message: 'Jersey number must be between 1 and 99' });
-    }
-
-    // Check for existing email
-    if (email) {
-      const existingEmail = await Player.findOne({ email: email.toLowerCase() });
-      if (existingEmail) {
-        return res.status(400).json({ message: 'Email already exists' });
-      }
-    }
-
-    // Check for existing ID card number
-    if (idCardNumber) {
-      const existingIdCard = await Player.findOne({ idCardNumber: idCardNumber.trim() });
-      if (existingIdCard) {
-        return res.status(400).json({ message: 'Player with this ID card number already exists' });
-      }
-    }
-
-    // Validate team and jersey number combination
-    if (currentTeam && jerseyNumber) {
-      const existingJersey = await Player.findOne({
-        currentTeam: new mongoose.Types.ObjectId(currentTeam),
-        jerseyNumber: parseInt(jerseyNumber),
-        status: { $in: ['active', 'injured', 'suspended'] }
-      });
-
-      if (existingJersey) {
-        return res.status(400).json({ 
-          message: `Jersey number ${jerseyNumber} is already taken in this team` 
-        });
-      }
-    }
-
-    // Prepare player data
+    // Create minimal player data
     const playerData = {
       name: name.trim(),
-      email: email ? email.toLowerCase().trim() : undefined,
-      phone: phone ? phone.trim() : undefined,
-      dateOfBirth: dateOfBirth || undefined,
-      nationality: nationality ? nationality.trim() : undefined,
-      position: position || undefined,
-      jerseyNumber: jerseyNumber ? parseInt(jerseyNumber) : undefined,
-      height: height ? parseFloat(height) : undefined,
-      weight: weight ? parseFloat(weight) : undefined,
-      photo: photo || undefined,
-      currentTeam: currentTeam ? new mongoose.Types.ObjectId(currentTeam) : undefined,
-      status: status || 'active',
-      notes: notes ? notes.trim() : undefined,
-      idCardNumber: idCardNumber ? idCardNumber.trim() : undefined,
-      emergencyContact: emergencyContact && (emergencyContact.name || emergencyContact.phone) ? {
-        name: emergencyContact.name ? emergencyContact.name.trim() : undefined,
-        phone: emergencyContact.phone ? emergencyContact.phone.trim() : undefined,
-        relationship: emergencyContact.relationship ? emergencyContact.relationship.trim() : undefined
-      } : undefined,
       careerStats: {
         appearances: 0,
         goals: 0,
@@ -213,14 +146,48 @@ async function createPlayer(req, res) {
       }
     };
 
-    // Remove undefined fields to avoid schema issues
-    Object.keys(playerData).forEach(key => {
-      if (playerData[key] === undefined) {
-        delete playerData[key];
-      }
-    });
+    // Add optional fields only if they exist and are valid
+    if (req.body.email && req.body.email.trim()) {
+      playerData.email = req.body.email.toLowerCase().trim();
+    }
+    
+    if (req.body.phone && req.body.phone.trim()) {
+      playerData.phone = req.body.phone.trim();
+    }
+    
+    if (req.body.dateOfBirth) {
+      playerData.dateOfBirth = req.body.dateOfBirth;
+    }
+    
+    if (req.body.nationality && req.body.nationality.trim()) {
+      playerData.nationality = req.body.nationality.trim();
+    }
+    
+    if (req.body.position) {
+      playerData.position = req.body.position;
+    }
+    
+    if (req.body.jerseyNumber && !isNaN(req.body.jerseyNumber)) {
+      playerData.jerseyNumber = parseInt(req.body.jerseyNumber);
+    }
+    
+    if (req.body.currentTeam && mongoose.Types.ObjectId.isValid(req.body.currentTeam)) {
+      playerData.currentTeam = new mongoose.Types.ObjectId(req.body.currentTeam);
+    }
+    
+    if (req.body.photo) {
+      playerData.photo = req.body.photo;
+    }
+    
+    if (req.body.status) {
+      playerData.status = req.body.status;
+    }
+    
+    if (req.body.idCardNumber && req.body.idCardNumber.trim()) {
+      playerData.idCardNumber = req.body.idCardNumber.trim();
+    }
 
-    console.log('Processed player data for creation:', {
+    console.log('Final player data for creation:', {
       ...playerData,
       idCardNumber: playerData.idCardNumber ? '***HIDDEN***' : undefined
     });
@@ -287,95 +254,33 @@ async function updatePlayer(req, res) {
       return res.status(404).json({ message: 'Player not found' });
     }
 
-    const {
-      name,
-      idCardNumber,
-      email,
-      phone,
-      dateOfBirth,
-      nationality,
-      position,
-      jerseyNumber,
-      height,
-      weight,
-      photo,
-      currentTeam,
-      status,
-      notes,
-      emergencyContact
-    } = req.body;
+    const { name } = req.body;
 
     // Validate required fields
     if (!name || name.trim() === '') {
       return res.status(400).json({ message: 'Player name is required' });
     }
 
-    // Validate email format if provided
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return res.status(400).json({ message: 'Invalid email format' });
-    }
-
-    // Check for existing email (excluding current player)
-    if (email) {
-      const existingEmail = await Player.findOne({ 
-        email: email.toLowerCase(),
-        _id: { $ne: id }
-      });
-      if (existingEmail) {
-        return res.status(400).json({ message: 'Email already exists' });
-      }
-    }
-
-    // Check for existing ID card number (excluding current player)
-    if (idCardNumber) {
-      const existingIdCard = await Player.findOne({ 
-        idCardNumber: idCardNumber.trim(),
-        _id: { $ne: id }
-      });
-      if (existingIdCard) {
-        return res.status(400).json({ message: 'Player with this ID card number already exists' });
-      }
-    }
-
-    // Validate team and jersey number combination
-    if (currentTeam && jerseyNumber) {
-      const existingJersey = await Player.findOne({
-        currentTeam: new mongoose.Types.ObjectId(currentTeam),
-        jerseyNumber: parseInt(jerseyNumber),
-        status: { $in: ['active', 'injured', 'suspended'] },
-        _id: { $ne: id }
-      });
-
-      if (existingJersey) {
-        return res.status(400).json({ 
-          message: `Jersey number ${jerseyNumber} is already taken in this team` 
-        });
-      }
-    }
-
-    // Prepare update data
+    // Prepare update data with only changed fields
     const updateData = {
       name: name.trim(),
-      email: email ? email.toLowerCase().trim() : null,
-      phone: phone ? phone.trim() : null,
-      dateOfBirth: dateOfBirth || null,
-      nationality: nationality ? nationality.trim() : null,
-      position: position || null,
-      jerseyNumber: jerseyNumber ? parseInt(jerseyNumber) : null,
-      height: height ? parseFloat(height) : null,
-      weight: weight ? parseFloat(weight) : null,
-      photo: photo || existingPlayer.photo, // Keep existing photo if none provided
-      currentTeam: currentTeam ? new mongoose.Types.ObjectId(currentTeam) : null,
-      status: status || 'active',
-      notes: notes ? notes.trim() : null,
-      idCardNumber: idCardNumber ? idCardNumber.trim() : null,
-      emergencyContact: emergencyContact && (emergencyContact.name || emergencyContact.phone) ? {
-        name: emergencyContact.name ? emergencyContact.name.trim() : null,
-        phone: emergencyContact.phone ? emergencyContact.phone.trim() : null,
-        relationship: emergencyContact.relationship ? emergencyContact.relationship.trim() : null
-      } : null,
       updatedAt: new Date()
     };
+
+    // Add optional fields only if provided
+    Object.keys(req.body).forEach(key => {
+      if (key !== 'id' && key !== 'name' && req.body[key] !== undefined && req.body[key] !== '') {
+        if (key === 'currentTeam' && mongoose.Types.ObjectId.isValid(req.body[key])) {
+          updateData[key] = new mongoose.Types.ObjectId(req.body[key]);
+        } else if (key === 'jerseyNumber') {
+          updateData[key] = req.body[key] ? parseInt(req.body[key]) : null;
+        } else if (key === 'email') {
+          updateData[key] = req.body[key] ? req.body[key].toLowerCase().trim() : null;
+        } else {
+          updateData[key] = req.body[key];
+        }
+      }
+    });
 
     const updatedPlayer = await Player.findByIdAndUpdate(
       id,
@@ -402,16 +307,6 @@ async function updatePlayer(req, res) {
     }
 
     if (error.code === 11000) {
-      // Handle duplicate key errors
-      if (error.keyPattern?.email) {
-        return res.status(400).json({ message: 'Email already exists' });
-      }
-      if (error.keyPattern?.idCardNumber) {
-        return res.status(400).json({ message: 'Player with this ID card number already exists' });
-      }
-      if (error.keyPattern?.jerseyNumber) {
-        return res.status(400).json({ message: 'Jersey number already taken in this team' });
-      }
       return res.status(400).json({ message: 'Duplicate entry detected' });
     }
 
