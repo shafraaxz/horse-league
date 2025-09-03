@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/admin/matches.js (FIXED WITH ERROR HANDLING)
+// FILE: pages/admin/matches.js (FIXED WITH PROPER TIME HANDLING)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
@@ -10,12 +10,78 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 
+// ===========================================
+// DATE HELPER FUNCTIONS
+// ===========================================
+
+/**
+ * Formats a date string/Date object to datetime-local input format
+ * Preserves the actual date/time without timezone conversion
+ */
+const formatToLocalDateTime = (dateInput) => {
+  if (!dateInput) return '';
+  
+  const date = new Date(dateInput);
+  
+  // Check if date is valid
+  if (isNaN(date.getTime())) return '';
+  
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+/**
+ * Converts datetime-local input value to ISO string for backend
+ * Preserves the local time (doesn't apply timezone offset)
+ */
+const parseLocalDateTimeToISO = (datetimeLocalValue) => {
+  if (!datetimeLocalValue) return null;
+  
+  // Create date from the local datetime string
+  // This treats the input as local time, not UTC
+  const date = new Date(datetimeLocalValue);
+  return date.toISOString();
+};
+
+/**
+ * Format date for display in tables
+ */
+const formatDisplayDate = (dateInput) => {
+  if (!dateInput) return 'No Date';
+  try {
+    return format(new Date(dateInput), 'MMM dd, yyyy');
+  } catch (error) {
+    return 'Invalid Date';
+  }
+};
+
+/**
+ * Format time for display in tables
+ */
+const formatDisplayTime = (dateInput) => {
+  if (!dateInput) return '';
+  try {
+    return format(new Date(dateInput), 'HH:mm');
+  } catch (error) {
+    return 'Invalid Time';
+  }
+};
+
+// ===========================================
+// MAIN COMPONENT
+// ===========================================
+
 export default function AdminMatches() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [matches, setMatches] = useState([]); // Initialize as empty array
-  const [teams, setTeams] = useState([]); // Initialize as empty array
-  const [seasons, setSeasons] = useState([]); // Initialize as empty array
+  const [matches, setMatches] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [seasons, setSeasons] = useState([]);
   const [selectedSeason, setSelectedSeason] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isLoading, setIsLoading] = useState(true);
@@ -56,7 +122,6 @@ export default function AdminMatches() {
       
       const data = await response.json();
       
-      // Ensure data is an array
       if (Array.isArray(data)) {
         setSeasons(data);
         
@@ -88,7 +153,6 @@ export default function AdminMatches() {
       
       const data = await response.json();
       
-      // Ensure data is an array
       if (Array.isArray(data)) {
         setTeams(data);
       } else {
@@ -117,7 +181,6 @@ export default function AdminMatches() {
       
       const data = await response.json();
       
-      // Ensure data is an array
       if (Array.isArray(data)) {
         setMatches(data);
       } else {
@@ -175,14 +238,11 @@ export default function AdminMatches() {
       
       const htmlContent = await response.text();
       
-      // Create a new window/tab with the HTML content for printing
       const printWindow = window.open('', '_blank');
       printWindow.document.write(htmlContent);
       printWindow.document.close();
       
-      // Add print functionality
       printWindow.onload = () => {
-        // Add a print button and auto-focus for user convenience
         const printButton = printWindow.document.createElement('button');
         printButton.innerHTML = 'Print / Save as PDF';
         printButton.style.cssText = `
@@ -204,7 +264,6 @@ export default function AdminMatches() {
         };
         printWindow.document.body.appendChild(printButton);
         
-        // Instructions for saving as PDF
         const instructions = printWindow.document.createElement('div');
         instructions.innerHTML = `
           <div style="position: fixed; top: 50px; right: 10px; background: #f3f4f6; padding: 10px; border-radius: 5px; font-size: 12px; max-width: 200px; z-index: 1000;">
@@ -309,10 +368,10 @@ export default function AdminMatches() {
                 <tr key={match._id}>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
-                      {match.matchDate ? format(new Date(match.matchDate), 'MMM dd, yyyy') : 'No Date'}
+                      {formatDisplayDate(match.matchDate)}
                     </div>
                     <div className="text-sm text-gray-500">
-                      {match.matchDate ? format(new Date(match.matchDate), 'HH:mm') : ''}
+                      {formatDisplayTime(match.matchDate)}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -420,12 +479,15 @@ export default function AdminMatches() {
   );
 }
 
-// Match Form Component
+// ===========================================
+// MATCH FORM COMPONENT (FIXED TIME HANDLING)
+// ===========================================
+
 function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
     homeTeam: match?.homeTeam?._id || '',
     awayTeam: match?.awayTeam?._id || '',
-    matchDate: match?.matchDate ? format(new Date(match.matchDate), "yyyy-MM-dd'T'HH:mm") : '',
+    matchDate: formatToLocalDateTime(match?.matchDate),
     venue: match?.venue || '',
     round: match?.round || 'Regular Season',
     referee: match?.referee || '',
@@ -436,6 +498,22 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
     notes: match?.notes || '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dateTimeError, setDateTimeError] = useState('');
+
+  // Validate datetime when it changes
+  const handleDateTimeChange = (value) => {
+    setDateTimeError('');
+    setFormData({ ...formData, matchDate: value });
+    
+    if (value) {
+      const selectedDate = new Date(value);
+      const now = new Date();
+      
+      if (selectedDate < now) {
+        setDateTimeError('Match date cannot be in the past');
+      }
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -455,19 +533,38 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
       toast.error('Please select match date and time');
       return;
     }
+
+    if (dateTimeError) {
+      toast.error(dateTimeError);
+      return;
+    }
     
     setIsSubmitting(true);
 
     try {
       const method = match ? 'PUT' : 'POST';
-      const body = match 
-        ? { ...formData, id: match._id }
-        : formData;
+      
+      // Prepare the data with properly formatted date
+      const submitData = {
+        ...formData,
+        matchDate: parseLocalDateTimeToISO(formData.matchDate),
+        homeScore: parseInt(formData.homeScore) || 0,
+        awayScore: parseInt(formData.awayScore) || 0,
+      };
+
+      if (match) {
+        submitData.id = match._id;
+      }
+
+      console.log('Submitting match data:', {
+        ...submitData,
+        matchDate: `${formData.matchDate} -> ${submitData.matchDate}`
+      });
 
       const response = await fetch('/api/admin/matches', {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(submitData),
       });
 
       const data = await response.json();
@@ -529,11 +626,18 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
           <label className="form-label">Match Date & Time *</label>
           <input
             type="datetime-local"
-            className="form-input"
+            className={`form-input ${dateTimeError ? 'border-red-500' : ''}`}
             value={formData.matchDate}
-            onChange={(e) => setFormData({ ...formData, matchDate: e.target.value })}
+            onChange={(e) => handleDateTimeChange(e.target.value)}
             required
           />
+          {dateTimeError && (
+            <div className="text-red-500 text-sm mt-1">{dateTimeError}</div>
+          )}
+          <div className="text-gray-500 text-xs mt-1">
+            Current preview: {formData.matchDate ? 
+              new Date(formData.matchDate).toLocaleString() : 'No date selected'}
+          </div>
         </div>
 
         <div className="form-group">
@@ -646,7 +750,7 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
         <button type="button" onClick={onClose} className="btn btn-secondary">
           Cancel
         </button>
-        <button type="submit" disabled={isSubmitting} className="btn btn-primary">
+        <button type="submit" disabled={isSubmitting || dateTimeError} className="btn btn-primary">
           {isSubmitting ? 'Saving...' : match ? 'Update Match' : 'Create Match'}
         </button>
       </div>
@@ -654,7 +758,10 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
   );
 }
 
-// Import Matches Form Component
+// ===========================================
+// IMPORT MATCHES FORM COMPONENT
+// ===========================================
+
 function ImportMatchesForm({ onClose, onSuccess }) {
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -699,7 +806,6 @@ function ImportMatchesForm({ onClose, onSuccess }) {
 
   const downloadTemplate = async () => {
     try {
-      // Try API endpoint first, fallback to static file
       const response = await fetch('/api/template/match-schedule');
       if (response.ok) {
         const blob = await response.blob();
@@ -710,7 +816,6 @@ function ImportMatchesForm({ onClose, onSuccess }) {
         link.click();
         window.URL.revokeObjectURL(url);
       } else {
-        // Fallback to static file
         const link = document.createElement('a');
         link.href = '/templates/match-schedule-template.csv';
         link.download = 'match-schedule-template.csv';
@@ -732,11 +837,16 @@ function ImportMatchesForm({ onClose, onSuccess }) {
         <ul className="list-disc list-inside text-blue-700 text-sm space-y-1">
           <li>homeTeam - Exact team name as registered</li>
           <li>awayTeam - Exact team name as registered</li>
-          <li>matchDate - Format: YYYY-MM-DD HH:MM</li>
+          <li>matchDate - Format: YYYY-MM-DD HH:MM (24-hour format)</li>
           <li>venue (optional)</li>
           <li>round (optional)</li>
           <li>referee (optional)</li>
         </ul>
+        <div className="bg-yellow-50 border border-yellow-200 rounded p-2 mt-2">
+          <p className="text-yellow-800 text-xs">
+            <strong>Time Note:</strong> Dates/times in CSV will be treated as your local timezone.
+          </p>
+        </div>
         <button
           type="button"
           onClick={downloadTemplate}
