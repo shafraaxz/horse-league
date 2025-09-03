@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/admin/matches.js (ENHANCED WITH LIVE MATCH INTEGRATION)
+// FILE: pages/api/admin/matches.js (UPDATED - Fixed Date Handling)
 // ===========================================
 import connectDB from '../../../lib/mongodb';
 import Match from '../../../models/Match';
@@ -92,6 +92,44 @@ async function updateTeamStatsFromMatch(match) {
   }
 }
 
+// ADDED: Helper function to properly handle date/time without timezone issues
+function parseMatchDate(dateInput) {
+  if (!dateInput) return null;
+  
+  try {
+    let matchDate;
+    
+    if (typeof dateInput === 'string') {
+      // Handle different date string formats
+      if (dateInput.includes('T') || dateInput.includes('Z')) {
+        // ISO string format
+        matchDate = new Date(dateInput);
+      } else {
+        // Assume local date string, create without timezone conversion
+        matchDate = new Date(dateInput + 'T00:00:00');
+      }
+    } else {
+      matchDate = new Date(dateInput);
+    }
+    
+    // Validate the date
+    if (isNaN(matchDate.getTime())) {
+      throw new Error('Invalid date');
+    }
+    
+    console.log('Date parsing:', {
+      input: dateInput,
+      output: matchDate.toISOString(),
+      local: matchDate.toLocaleString()
+    });
+    
+    return matchDate;
+  } catch (error) {
+    console.error('Date parsing error:', error);
+    return null;
+  }
+}
+
 export default async function handler(req, res) {
   // Add CORS headers for production
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -172,6 +210,7 @@ export default async function handler(req, res) {
         try {
           const matchData = req.body;
           console.log('Creating match:', matchData.homeTeam, 'vs', matchData.awayTeam);
+          console.log('Original match date input:', matchData.matchDate);
 
           // Validate required fields
           if (!matchData.homeTeam || !matchData.awayTeam || !matchData.matchDate || !matchData.season) {
@@ -198,9 +237,18 @@ export default async function handler(req, res) {
             });
           }
 
+          // FIXED: Parse match date properly
+          const parsedMatchDate = parseMatchDate(matchData.matchDate);
+          if (!parsedMatchDate) {
+            return res.status(400).json({ 
+              message: 'Invalid match date format' 
+            });
+          }
+
           // Initialize live data for all matches
           const match = new Match({
             ...matchData,
+            matchDate: parsedMatchDate, // Use properly parsed date
             status: matchData.status || 'scheduled',
             homeScore: matchData.homeScore || 0,
             awayScore: matchData.awayScore || 0,
@@ -222,6 +270,7 @@ export default async function handler(req, res) {
             .lean();
 
           console.log('Match created successfully:', match._id);
+          console.log('Final stored date:', populatedMatch.matchDate);
           return res.status(201).json(populatedMatch);
           
         } catch (error) {
@@ -236,6 +285,7 @@ export default async function handler(req, res) {
         try {
           const { id, ...updateData } = req.body;
           console.log('Updating match:', id);
+          console.log('Update data received:', updateData);
 
           if (!id) {
             return res.status(400).json({ message: 'Match ID is required' });
@@ -255,9 +305,22 @@ export default async function handler(req, res) {
             });
           }
 
+          // FIXED: Handle date updates properly
+          const finalUpdateData = { ...updateData };
+          if (updateData.matchDate) {
+            console.log('Original date update:', updateData.matchDate);
+            const parsedDate = parseMatchDate(updateData.matchDate);
+            if (!parsedDate) {
+              return res.status(400).json({ 
+                message: 'Invalid match date format' 
+              });
+            }
+            finalUpdateData.matchDate = parsedDate;
+          }
+
           const match = await Match.findByIdAndUpdate(
             id,
-            updateData,
+            finalUpdateData,
             { new: true, runValidators: true }
           ).populate('homeTeam', 'name logo')
            .populate('awayTeam', 'name logo')
@@ -280,6 +343,7 @@ export default async function handler(req, res) {
           }
 
           console.log('Match updated successfully:', id);
+          console.log('Final updated date:', match.matchDate);
           return res.status(200).json(match);
           
         } catch (error) {
