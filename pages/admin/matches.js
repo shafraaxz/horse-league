@@ -373,6 +373,12 @@ export default function AdminMatches() {
                     <div className="text-sm text-gray-500">
                       {formatDisplayTime(match.matchDate)}
                     </div>
+                    {/* Debug info - remove this after fixing */}
+                    {process.env.NODE_ENV === 'development' && (
+                      <div className="text-xs text-gray-400">
+                        Raw: {JSON.stringify(match.matchDate)}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
