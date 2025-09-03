@@ -1,10 +1,10 @@
 // ===========================================
-// FILE: pages/admin/matches.js (FIXED WITH PROPER TIME HANDLING)
+// FILE: pages/admin/matches.js (COMPLETE INTEGRATED VERSION)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { Plus, Edit, Trash2, Calendar, Play, Upload, FileDown } from 'lucide-react';
+import { Plus, Edit, Trash2, Calendar, Play, Upload, FileDown, AlertCircle, CheckCircle } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
@@ -70,6 +70,45 @@ const formatDisplayTime = (dateInput) => {
   } catch (error) {
     return 'Invalid Time';
   }
+};
+
+/**
+ * Enhanced date validation based on match status
+ */
+const validateMatchDate = (dateInput, status = 'scheduled') => {
+  if (!dateInput) return { isValid: false, error: 'Match date is required' };
+  
+  const date = new Date(dateInput);
+  if (isNaN(date.getTime())) return { isValid: false, error: 'Invalid date format' };
+  
+  const now = new Date();
+  const timeDifference = date.getTime() - now.getTime();
+  const hoursDifference = Math.abs(timeDifference) / (1000 * 60 * 60);
+  
+  switch (status) {
+    case 'scheduled':
+      if (date < now) {
+        return { isValid: false, error: 'Scheduled match date cannot be in the past' };
+      }
+      break;
+    case 'live':
+      if (hoursDifference > 24) {
+        return { isValid: false, error: 'Live match date should be within 24 hours of current time' };
+      }
+      break;
+    case 'completed':
+      // Completed matches can be in the past, but not too far in the future
+      if (timeDifference > 24 * 60 * 60 * 1000) {
+        return { isValid: false, error: 'Completed match date cannot be more than 24 hours in the future' };
+      }
+      break;
+    case 'postponed':
+    case 'cancelled':
+      // These can have any reasonable date
+      break;
+  }
+  
+  return { isValid: true, error: null };
 };
 
 // ===========================================
@@ -293,6 +332,16 @@ export default function AdminMatches() {
     }
   };
 
+  const getStatusIcon = (match) => {
+    if (match.status === 'completed' && match.events && match.events.length > 0) {
+      return <CheckCircle className="w-4 h-4 text-green-600 ml-1" title="Has player statistics" />;
+    }
+    if (match.status === 'completed' && (!match.events || match.events.length === 0)) {
+      return <AlertCircle className="w-4 h-4 text-yellow-600 ml-1" title="No player statistics" />;
+    }
+    return null;
+  };
+
   if (status === 'loading' || isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -349,6 +398,48 @@ export default function AdminMatches() {
         </div>
       </div>
 
+      {/* Match Statistics Summary */}
+      {matches.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+          <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+            <div className="text-2xl font-bold text-blue-600">{matches.length}</div>
+            <div className="text-sm text-gray-600">Total</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+            <div className="text-2xl font-bold text-green-600">
+              {matches.filter(m => m.status === 'completed').length}
+            </div>
+            <div className="text-sm text-gray-600">Completed</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+            <div className="text-2xl font-bold text-red-600">
+              {matches.filter(m => m.status === 'live').length}
+            </div>
+            <div className="text-sm text-gray-600">Live</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+            <div className="text-2xl font-bold text-yellow-600">
+              {matches.filter(m => m.status === 'scheduled').length}
+            </div>
+            <div className="text-sm text-gray-600">Scheduled</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+            <div className="text-2xl font-bold text-purple-600">
+              {matches.filter(m => m.status === 'completed' && m.events && m.events.length > 0).length}
+            </div>
+            <div className="text-sm text-gray-600">With Stats</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+            <div className="text-2xl font-bold text-orange-600">
+              {matches
+                .filter(m => m.status === 'completed')
+                .reduce((sum, m) => sum + (m.homeScore || 0) + (m.awayScore || 0), 0)}
+            </div>
+            <div className="text-sm text-gray-600">Total Goals</div>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -360,12 +451,13 @@ export default function AdminMatches() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Venue</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Round</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Events</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {Array.isArray(matches) && matches.map((match) => (
-                <tr key={match._id}>
+                <tr key={match._id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
                       {formatDisplayDate(match.matchDate)}
@@ -373,12 +465,6 @@ export default function AdminMatches() {
                     <div className="text-sm text-gray-500">
                       {formatDisplayTime(match.matchDate)}
                     </div>
-                    {/* Debug info - remove this after fixing */}
-                    {process.env.NODE_ENV === 'development' && (
-                      <div className="text-xs text-gray-400">
-                        Raw: {JSON.stringify(match.matchDate)}
-                      </div>
-                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
@@ -395,12 +481,15 @@ export default function AdminMatches() {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(match.status)}`}>
-                      {match.status ? match.status.charAt(0).toUpperCase() + match.status.slice(1) : 'Unknown'}
-                      {match.status === 'live' && match.liveData?.currentMinute && (
-                        <span className="ml-1">{match.liveData.currentMinute}'</span>
-                      )}
-                    </span>
+                    <div className="flex items-center">
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(match.status)}`}>
+                        {match.status ? match.status.charAt(0).toUpperCase() + match.status.slice(1) : 'Unknown'}
+                        {match.status === 'live' && match.liveData?.currentMinute && (
+                          <span className="ml-1">{match.liveData.currentMinute}'</span>
+                        )}
+                      </span>
+                      {getStatusIcon(match)}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{match.venue || '-'}</div>
@@ -408,28 +497,44 @@ export default function AdminMatches() {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">{match.round || '-'}</div>
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-600">
+                      {match.events && match.events.length > 0 ? (
+                        <div className="space-y-1">
+                          <div>{match.events.filter(e => e.type === 'goal').length} Goals</div>
+                          <div>{match.events.filter(e => e.type === 'yellow_card' || e.type === 'red_card').length} Cards</div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">No events</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {match.status === 'scheduled' && (
+                    <div className="flex items-center space-x-2">
+                      {match.status === 'scheduled' && (
+                        <button
+                          onClick={() => router.push(`/matches/live?matchId=${match._id}`)}
+                          className="text-green-600 hover:text-green-900"
+                          title="Start Live Match"
+                        >
+                          <Play className="w-4 h-4" />
+                        </button>
+                      )}
                       <button
-                        onClick={() => router.push(`/matches/live?matchId=${match._id}`)}
-                        className="text-green-600 hover:text-green-900 mr-3"
-                        title="Start Live Match"
+                        onClick={() => handleEditMatch(match)}
+                        className="text-blue-600 hover:text-blue-900"
+                        title="Edit Match"
                       >
-                        <Play className="w-4 h-4" />
+                        <Edit className="w-4 h-4" />
                       </button>
-                    )}
-                    <button
-                      onClick={() => handleEditMatch(match)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteMatch(match._id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                      <button
+                        onClick={() => handleDeleteMatch(match._id)}
+                        className="text-red-600 hover:text-red-900"
+                        title="Delete Match"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -451,9 +556,9 @@ export default function AdminMatches() {
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         title={editingMatch ? 'Edit Match' : 'Add New Match'}
-        size="lg"
+        size="xl"
       >
-        <MatchForm
+        <EnhancedMatchForm
           match={editingMatch}
           teams={teams}
           seasons={seasons}
@@ -486,10 +591,10 @@ export default function AdminMatches() {
 }
 
 // ===========================================
-// MATCH FORM COMPONENT (FIXED TIME HANDLING)
+// ENHANCED MATCH FORM COMPONENT
 // ===========================================
 
-function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }) {
+function EnhancedMatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
     homeTeam: match?.homeTeam?._id || '',
     awayTeam: match?.awayTeam?._id || '',
@@ -502,23 +607,120 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
     homeScore: match?.homeScore || 0,
     awayScore: match?.awayScore || 0,
     notes: match?.notes || '',
+    events: match?.events || []
   });
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dateTimeError, setDateTimeError] = useState('');
+  const [homePlayers, setHomePlayers] = useState([]);
+  const [awayPlayers, setAwayPlayers] = useState([]);
+  const [showPlayerStats, setShowPlayerStats] = useState(false);
 
-  // Validate datetime when it changes
+  // Fetch team players when teams change
+  useEffect(() => {
+    if (formData.homeTeam && formData.season) {
+      fetchTeamPlayers(formData.homeTeam, 'home');
+    }
+    if (formData.awayTeam && formData.season) {
+      fetchTeamPlayers(formData.awayTeam, 'away');
+    }
+  }, [formData.homeTeam, formData.awayTeam, formData.season]);
+
+  // Show player stats section when status is completed
+  useEffect(() => {
+    if (formData.status === 'completed') {
+      setShowPlayerStats(true);
+    } else {
+      setShowPlayerStats(false);
+    }
+  }, [formData.status]);
+
+  const fetchTeamPlayers = async (teamId, teamType) => {
+    try {
+      const response = await fetch(`/api/admin/players?teamId=${teamId}&status=active`);
+      if (response.ok) {
+        const players = await response.json();
+        if (teamType === 'home') {
+          setHomePlayers(Array.isArray(players) ? players : []);
+        } else {
+          setAwayPlayers(Array.isArray(players) ? players : []);
+        }
+      }
+    } catch (error) {
+      console.error(`Error fetching ${teamType} team players:`, error);
+    }
+  };
+
+  // Enhanced date validation
   const handleDateTimeChange = (value) => {
-    setDateTimeError('');
     setFormData({ ...formData, matchDate: value });
+    const validation = validateMatchDate(value, formData.status);
+    setDateTimeError(validation.error || '');
+  };
+
+  const handleStatusChange = (status) => {
+    const newFormData = { ...formData, status };
     
-    if (value) {
-      const selectedDate = new Date(value);
-      const now = new Date();
-      
-      if (selectedDate < now) {
-        setDateTimeError('Match date cannot be in the past');
+    // Reset scores and events for non-active matches
+    if (status === 'scheduled' || status === 'postponed' || status === 'cancelled') {
+      newFormData.homeScore = 0;
+      newFormData.awayScore = 0;
+      newFormData.events = [];
+    }
+    
+    setFormData(newFormData);
+    
+    // Re-validate date with new status
+    if (newFormData.matchDate) {
+      const validation = validateMatchDate(newFormData.matchDate, status);
+      setDateTimeError(validation.error || '');
+    }
+  };
+
+  const addPlayerEvent = (playerId, playerName, team, eventType) => {
+    const newEvent = {
+      id: Date.now(),
+      type: eventType,
+      team: team,
+      minute: 90, // Default to full match for completed games
+      player: playerId,
+      playerName: playerName,
+      description: `${eventType.replace('_', ' ').toUpperCase()} - ${playerName}`,
+      timestamp: new Date()
+    };
+
+    const updatedEvents = [...formData.events, newEvent];
+    let updatedFormData = { ...formData, events: updatedEvents };
+
+    // Auto-update score for goals
+    if (eventType === 'goal') {
+      if (team === 'home') {
+        updatedFormData.homeScore = formData.homeScore + 1;
+      } else {
+        updatedFormData.awayScore = formData.awayScore + 1;
       }
     }
+
+    setFormData(updatedFormData);
+    toast.success(`${eventType.replace('_', ' ').toUpperCase()} added for ${playerName}`);
+  };
+
+  const removeEvent = (eventIndex) => {
+    const eventToRemove = formData.events[eventIndex];
+    let updatedFormData = { ...formData };
+    
+    // Adjust score if removing a goal
+    if (eventToRemove.type === 'goal') {
+      if (eventToRemove.team === 'home') {
+        updatedFormData.homeScore = Math.max(0, formData.homeScore - 1);
+      } else {
+        updatedFormData.awayScore = Math.max(0, formData.awayScore - 1);
+      }
+    }
+
+    updatedFormData.events = formData.events.filter((_, index) => index !== eventIndex);
+    setFormData(updatedFormData);
+    toast.success('Event removed');
   };
 
   const handleSubmit = async (e) => {
@@ -550,22 +752,19 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
     try {
       const method = match ? 'PUT' : 'POST';
       
-      // Prepare the data with properly formatted date
       const submitData = {
         ...formData,
         matchDate: parseLocalDateTimeToISO(formData.matchDate),
         homeScore: parseInt(formData.homeScore) || 0,
         awayScore: parseInt(formData.awayScore) || 0,
+        events: formData.events
       };
 
       if (match) {
         submitData.id = match._id;
       }
 
-      console.log('Submitting match data:', {
-        ...submitData,
-        matchDate: `${formData.matchDate} -> ${submitData.matchDate}`
-      });
+      console.log('Submitting match data:', submitData);
 
       const response = await fetch('/api/admin/matches', {
         method,
@@ -576,7 +775,11 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
       const data = await response.json();
 
       if (response.ok) {
-        toast.success(match ? 'Match updated successfully' : 'Match created successfully');
+        toast.success(
+          formData.status === 'completed' && formData.events.length > 0 
+            ? 'Match saved and player stats updated!' 
+            : match ? 'Match updated successfully' : 'Match created successfully'
+        );
         onSuccess();
       } else {
         toast.error(data.message || 'Operation failed');
@@ -590,7 +793,8 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-6 max-h-[80vh] overflow-y-auto">
+      {/* Basic Match Information */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="form-label">Home Team *</label>
@@ -640,8 +844,13 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
           {dateTimeError && (
             <div className="text-red-500 text-sm mt-1">{dateTimeError}</div>
           )}
+          {formData.status === 'completed' && !dateTimeError && (
+            <div className="text-green-600 text-sm mt-1">
+              ✓ Past dates are allowed for completed matches
+            </div>
+          )}
           <div className="text-gray-500 text-xs mt-1">
-            Current preview: {formData.matchDate ? 
+            Preview: {formData.matchDate ? 
               new Date(formData.matchDate).toLocaleString() : 'No date selected'}
           </div>
         </div>
@@ -688,7 +897,7 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
           <select
             className="form-input"
             value={formData.status}
-            onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+            onChange={(e) => handleStatusChange(e.target.value)}
           >
             <option value="scheduled">Scheduled</option>
             <option value="live">Live</option>
@@ -696,12 +905,19 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
             <option value="postponed">Postponed</option>
             <option value="cancelled">Cancelled</option>
           </select>
+          {formData.status === 'completed' && (
+            <div className="text-sm text-green-600 mt-1">
+              Player statistics will be updated automatically
+            </div>
+          )}
         </div>
 
         {(formData.status === 'completed' || formData.status === 'live') && (
           <>
             <div className="form-group">
-              <label className="form-label">Home Score</label>
+              <label className="form-label">
+                {teams.find(t => t._id === formData.homeTeam)?.name || 'Home'} Score
+              </label>
               <input
                 type="number"
                 min="0"
@@ -712,7 +928,9 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
             </div>
 
             <div className="form-group">
-              <label className="form-label">Away Score</label>
+              <label className="form-label">
+                {teams.find(t => t._id === formData.awayTeam)?.name || 'Away'} Score
+              </label>
               <input
                 type="number"
                 min="0"
@@ -724,6 +942,83 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
           </>
         )}
       </div>
+
+      {/* Player Statistics Section */}
+      {formData.status === 'completed' && (homePlayers.length > 0 || awayPlayers.length > 0) && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Player Statistics</h3>
+            <button
+              type="button"
+              onClick={() => setShowPlayerStats(!showPlayerStats)}
+              className="text-green-600 hover:text-green-800 text-sm font-medium"
+            >
+              {showPlayerStats ? 'Hide' : 'Show'} Player Stats
+            </button>
+          </div>
+
+          {showPlayerStats && (
+            <div className="space-y-6">
+              {/* Home Team Players */}
+              {homePlayers.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-green-800 mb-3">
+                    {teams.find(t => t._id === formData.homeTeam)?.name} Players
+                  </h4>
+                  <PlayerStatsSection
+                    players={homePlayers}
+                    team="home"
+                    events={formData.events}
+                    onAddEvent={addPlayerEvent}
+                  />
+                </div>
+              )}
+
+              {/* Away Team Players */}
+              {awayPlayers.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-green-800 mb-3">
+                    {teams.find(t => t._id === formData.awayTeam)?.name} Players
+                  </h4>
+                  <PlayerStatsSection
+                    players={awayPlayers}
+                    team="away"
+                    events={formData.events}
+                    onAddEvent={addPlayerEvent}
+                  />
+                </div>
+              )}
+
+              {/* Events Summary */}
+              {formData.events.length > 0 && (
+                <div className="mt-6">
+                  <h4 className="font-semibold text-green-800 mb-3">Match Events</h4>
+                  <div className="space-y-2 max-h-32 overflow-y-auto">
+                    {formData.events.map((event, index) => (
+                      <div key={event.id} className="flex items-center justify-between bg-white p-2 rounded border">
+                        <span className="text-sm">
+                          <span className="font-medium">{event.playerName}</span>
+                          <span className="mx-2">•</span>
+                          <span className="capitalize">{event.type.replace('_', ' ')}</span>
+                          <span className="mx-2">•</span>
+                          <span className="text-gray-500">{event.team === 'home' ? 'Home' : 'Away'}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeEvent(index)}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="form-group">
         <label className="form-label">Season *</label>
@@ -761,6 +1056,84 @@ function MatchForm({ match, teams, seasons, selectedSeason, onClose, onSuccess }
         </button>
       </div>
     </form>
+  );
+}
+
+// Player Statistics Section Component
+function PlayerStatsSection({ players, team, events, onAddEvent }) {
+  const getPlayerEvents = (playerId, eventType) => {
+    return events.filter(e => e.player === playerId && e.type === eventType && e.team === team);
+  };
+
+  return (
+    <div className="grid gap-3">
+      {players.map((player) => {
+        const playerGoals = getPlayerEvents(player._id, 'goal');
+        const playerAssists = getPlayerEvents(player._id, 'assist');
+        const playerYellowCards = getPlayerEvents(player._id, 'yellow_card');
+        const playerRedCards = getPlayerEvents(player._id, 'red_card');
+
+        return (
+          <div key={player._id} className="bg-white border rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <span className="font-medium">{player.name}</span>
+                <span className="text-gray-500 ml-2">
+                  #{player.jerseyNumber || 'N/A'} • {player.position}
+                </span>
+              </div>
+              <div className="flex space-x-1 text-xs">
+                <span className="bg-green-100 text-green-800 px-2 py-1 rounded">
+                  {playerGoals.length}G
+                </span>
+                <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                  {playerAssists.length}A
+                </span>
+                <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
+                  {playerYellowCards.length}Y
+                </span>
+                {playerRedCards.length > 0 && (
+                  <span className="bg-red-100 text-red-800 px-2 py-1 rounded">
+                    {playerRedCards.length}R
+                  </span>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex space-x-2">
+              <button
+                type="button"
+                onClick={() => onAddEvent(player._id, player.name, team, 'goal')}
+                className="bg-green-600 text-white px-2 py-1 rounded text-xs hover:bg-green-700"
+              >
+                + Goal
+              </button>
+              <button
+                type="button"
+                onClick={() => onAddEvent(player._id, player.name, team, 'assist')}
+                className="bg-blue-600 text-white px-2 py-1 rounded text-xs hover:bg-blue-700"
+              >
+                + Assist
+              </button>
+              <button
+                type="button"
+                onClick={() => onAddEvent(player._id, player.name, team, 'yellow_card')}
+                className="bg-yellow-600 text-white px-2 py-1 rounded text-xs hover:bg-yellow-700"
+              >
+                + Yellow
+              </button>
+              <button
+                type="button"
+                onClick={() => onAddEvent(player._id, player.name, team, 'red_card')}
+                className="bg-red-600 text-white px-2 py-1 rounded text-xs hover:bg-red-700"
+              >
+                + Red
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
