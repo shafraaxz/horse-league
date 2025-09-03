@@ -1,9 +1,9 @@
 // ===========================================
-// FILE: pages/api/admin/populate-transfers.js
-// One-time script to create missing transfer records
+// FILE: pages/api/admin/force-populate-transfers.js (FORCE RECREATE ALL TRANSFERS)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
+import Team from '../../../models/Team';
 import Transfer from '../../../models/Transfer';
 import Season from '../../../models/Season';
 import { getServerSession } from 'next-auth/next';
@@ -14,122 +14,96 @@ export default async function handler(req, res) {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  await dbConnect();
-
   try {
-    // Check authentication (optional - remove if you want to run without auth)
-    // const session = await getServerSession(req, res, authOptions);
-    // if (!session || session.user.role !== 'admin') {
-    //   return res.status(401).json({ message: 'Unauthorized' });
-    // }
+    await dbConnect();
 
-    // Get active season
+    // Check authentication
+    const session = await getServerSession(req, res, authOptions);
+    if (!session || session.user.role !== 'admin') {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    console.log('=== FORCE POPULATE TRANSFERS SCRIPT STARTED ===');
+
+    // Get the active season
     const activeSeason = await Season.findOne({ isActive: true });
     if (!activeSeason) {
-      return res.status(400).json({ message: 'No active season found' });
+      return res.status(400).json({ 
+        message: 'No active season found',
+        error: 'An active season is required to create transfer records'
+      });
     }
 
-    console.log('Found active season:', activeSeason.name);
+    console.log('Active season:', activeSeason.name);
 
-    // Find all players with teams
-    const players = await Player.find({ 
-      currentTeam: { $ne: null },
-      status: { $in: ['active', 'injured', 'suspended'] }
-    }).populate('currentTeam', 'name season');
+    // FORCE DELETE ALL EXISTING TRANSFERS FOR THIS SEASON
+    const deleteResult = await Transfer.deleteMany({ season: activeSeason._id });
+    console.log(`Deleted ${deleteResult.deletedCount} existing transfers`);
 
-    console.log(`Found ${players.length} players with teams`);
+    // Get all players
+    const allPlayers = await Player.find({}).populate('currentTeam');
+    console.log(`Found ${allPlayers.length} total players`);
 
-    let createdCount = 0;
-    let skippedCount = 0;
+    let transfersCreated = 0;
+    let freeAgents = 0;
 
-    for (const player of players) {
-      // Check if transfer record already exists
-      const existingTransfer = await Transfer.findOne({
-        player: player._id,
-        toTeam: player.currentTeam._id
-      });
+    for (const player of allPlayers) {
+      try {
+        // Create transfer record based on current team status
+        const transferData = {
+          player: player._id,
+          fromTeam: null, // Initial registration
+          toTeam: player.currentTeam ? player.currentTeam._id : null,
+          season: activeSeason._id,
+          transferDate: new Date(),
+          transferType: player.currentTeam ? 'registration' : 'registration',
+          notes: player.currentTeam 
+            ? `Initial registration - assigned to ${player.currentTeam.name}`
+            : 'Initial registration - free agent'
+        };
 
-      if (!existingTransfer) {
-        try {
-          // Create transfer record
-          const transferRecord = new Transfer({
-            player: player._id,
-            fromTeam: null, // Registration (no previous team)
-            toTeam: player.currentTeam._id,
-            season: activeSeason._id, // Use active season
-            transferType: 'registration',
-            transferDate: player.createdAt || new Date(),
-            transferFee: 0,
-            notes: 'Retroactive registration - populated by admin script'
-          });
-
-          await transferRecord.save();
-          createdCount++;
-          console.log(`✓ Created transfer record for ${player.name} → ${player.currentTeam.name}`);
-        } catch (error) {
-          console.error(`✗ Failed to create transfer for ${player.name}:`, error.message);
+        const transfer = new Transfer(transferData);
+        await transfer.save();
+        
+        if (player.currentTeam) {
+          console.log(`✅ Created transfer: ${player.name} → ${player.currentTeam.name}`);
+        } else {
+          console.log(`✅ Created transfer: ${player.name} → Free Agent`);
+          freeAgents++;
         }
-      } else {
-        skippedCount++;
-        console.log(`- Skipped ${player.name} (transfer record exists)`);
+        
+        transfersCreated++;
+
+      } catch (playerError) {
+        console.error(`❌ Error processing ${player.name}:`, playerError.message);
+        continue;
       }
     }
 
-    // Also check for free agents and create their registration records
-    const freeAgents = await Player.find({
-      currentTeam: null,
-      status: { $in: ['active', 'injured', 'suspended'] }
-    });
+    console.log('=== FORCE POPULATE TRANSFERS SCRIPT COMPLETED ===');
 
-    for (const player of freeAgents) {
-      // Check if any transfer record exists for this player
-      const existingTransfer = await Transfer.findOne({
-        player: player._id
-      });
-
-      if (!existingTransfer) {
-        try {
-          // Create a registration record even for free agents
-          const transferRecord = new Transfer({
-            player: player._id,
-            fromTeam: null,
-            toTeam: null, // Special case: registered but no team assigned
-            season: activeSeason._id,
-            transferType: 'registration',
-            transferDate: player.createdAt || new Date(),
-            transferFee: 0,
-            notes: 'Player registered as free agent'
-          });
-
-          // Don't save this - Transfer model requires toTeam
-          // await transferRecord.save();
-          console.log(`- Free agent ${player.name} - no transfer record needed`);
-        } catch (error) {
-          console.log(`- Free agent ${player.name} - skipped`);
-        }
-      }
-    }
-
-    const summary = {
-      message: 'Transfer population completed',
-      results: {
-        totalPlayers: players.length,
-        transfersCreated: createdCount,
-        transfersSkipped: skippedCount,
-        freeAgents: freeAgents.length
-      },
+    const results = {
+      deletedTransfers: deleteResult.deletedCount,
+      totalPlayers: allPlayers.length,
+      transfersCreated,
+      freeAgents,
+      playersWithTeams: allPlayers.length - freeAgents,
       activeSeason: activeSeason.name
     };
 
-    console.log('Final summary:', summary);
-    
-    res.status(200).json(summary);
+    console.log('Results:', results);
+
+    res.status(200).json({
+      message: 'Force transfer population completed',
+      results,
+      activeSeason: activeSeason.name
+    });
 
   } catch (error) {
-    console.error('Error populating transfers:', error);
-    res.status(500).json({ 
-      message: 'Error populating transfers',
-      error: error.message 
+    console.error('Force populate transfers error:', error);
+    res.status(500).json({
+      message: 'Error force populating transfers',
+      error: error.message
     });
   }
 }
