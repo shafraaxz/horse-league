@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: models/Transfer.js (MINIMAL FIX - Just remove required from toTeam)
+// FILE: models/Transfer.js (UPDATED - Allows Free Agent Releases)
 // ===========================================
 import mongoose from 'mongoose';
 
