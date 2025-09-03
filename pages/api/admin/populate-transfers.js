@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/admin/populate-transfers.js (FIXED - Correct Model Imports)
+// FILE: pages/api/admin/force-populate-transfers.js (FORCE RECREATE ALL TRANSFERS)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
@@ -23,7 +23,7 @@ export default async function handler(req, res) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
-    console.log('=== POPULATE TRANSFERS SCRIPT STARTED ===');
+    console.log('=== FORCE POPULATE TRANSFERS SCRIPT STARTED ===');
 
     // Get the active season
     const activeSeason = await Season.findOne({ isActive: true });
@@ -36,81 +36,73 @@ export default async function handler(req, res) {
 
     console.log('Active season:', activeSeason.name);
 
+    // FORCE DELETE ALL EXISTING TRANSFERS FOR THIS SEASON
+    const deleteResult = await Transfer.deleteMany({ season: activeSeason._id });
+    console.log(`Deleted ${deleteResult.deletedCount} existing transfers`);
+
     // Get all players
     const allPlayers = await Player.find({}).populate('currentTeam');
     console.log(`Found ${allPlayers.length} total players`);
 
     let transfersCreated = 0;
-    let transfersSkipped = 0;
     let freeAgents = 0;
 
     for (const player of allPlayers) {
       try {
-        // Check if transfer record already exists for this player
-        const existingTransfer = await Transfer.findOne({ 
-          player: player._id,
-          season: activeSeason._id
-        });
-
-        if (existingTransfer) {
-          console.log(`Transfer already exists for ${player.name}, skipping`);
-          transfersSkipped++;
-          continue;
-        }
-
         // Create transfer record based on current team status
         const transferData = {
           player: player._id,
-          fromTeam: null, // Assuming this is initial registration
+          fromTeam: null, // Initial registration
           toTeam: player.currentTeam ? player.currentTeam._id : null,
           season: activeSeason._id,
           transferDate: new Date(),
-          transferType: 'registration',
+          transferType: player.currentTeam ? 'registration' : 'registration',
           notes: player.currentTeam 
             ? `Initial registration - assigned to ${player.currentTeam.name}`
             : 'Initial registration - free agent'
         };
 
-        // Only create if player has a team (since your current model requires toTeam)
+        const transfer = new Transfer(transferData);
+        await transfer.save();
+        
         if (player.currentTeam) {
-          const transfer = new Transfer(transferData);
-          await transfer.save();
-          
-          console.log(`Created transfer record for ${player.name} → ${player.currentTeam.name}`);
-          transfersCreated++;
+          console.log(`✅ Created transfer: ${player.name} → ${player.currentTeam.name}`);
         } else {
-          console.log(`${player.name} is a free agent - skipping (toTeam required in current model)`);
+          console.log(`✅ Created transfer: ${player.name} → Free Agent`);
           freeAgents++;
         }
+        
+        transfersCreated++;
 
       } catch (playerError) {
-        console.error(`Error processing ${player.name}:`, playerError.message);
+        console.error(`❌ Error processing ${player.name}:`, playerError.message);
         continue;
       }
     }
 
-    console.log('=== POPULATE TRANSFERS SCRIPT COMPLETED ===');
+    console.log('=== FORCE POPULATE TRANSFERS SCRIPT COMPLETED ===');
 
     const results = {
+      deletedTransfers: deleteResult.deletedCount,
       totalPlayers: allPlayers.length,
       transfersCreated,
-      transfersSkipped,
       freeAgents,
+      playersWithTeams: allPlayers.length - freeAgents,
       activeSeason: activeSeason.name
     };
 
     console.log('Results:', results);
 
     res.status(200).json({
-      message: 'Transfer population completed',
+      message: 'Force transfer population completed',
       results,
       activeSeason: activeSeason.name
     });
 
   } catch (error) {
-    console.error('Populate transfers error:', error);
+    console.error('Force populate transfers error:', error);
     res.status(500).json({
-      message: 'Error populating transfers',
+      message: 'Error force populating transfers',
       error: error.message
     });
   }
