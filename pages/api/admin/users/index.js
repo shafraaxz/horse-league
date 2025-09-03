@@ -1,9 +1,9 @@
 // pages/api/admin/users/index.js
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../auth/[...nextauth]';
-import User from '../../../../models/User'; // Adjust path to your User model
+import User from '../../../models/User'; // Correct path to your User model
 import bcrypt from 'bcryptjs';
-import dbConnect from '../../../../lib/dbConnect'; // Your mongoose connection function
+import dbConnect from '../../../lib/mongodb'; // Your mongoose connection function
 
 export default async function handler(req, res) {
   try {
