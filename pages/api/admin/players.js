@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/admin/players.js (FIXED - Jersey Number Validation)
+// FILE: pages/api/admin/players.js (SIMPLIFIED - NO JERSEY VALIDATION)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
@@ -39,7 +39,6 @@ export default async function handler(req, res) {
       if (seasonId) {
         const teams = await Team.find({ season: seasonId }).select('_id');
         const teamIds = teams.map(team => team._id);
-        // Include both team players and free agents for admin view
         query.$or = [
           { currentTeam: { $in: teamIds } },
           { currentTeam: null }
@@ -68,11 +67,11 @@ export default async function handler(req, res) {
     if (req.method === 'POST') {
       const playerData = req.body;
       
-      console.log('Creating player with data:', JSON.stringify(playerData, null, 2));
+      console.log('=== SIMPLIFIED PLAYER CREATION ===');
+      console.log('Raw player data:', JSON.stringify(playerData, null, 2));
       
       // Validate required fields
       if (!playerData.name || !playerData.name.trim()) {
-        console.log('Validation failed: Name is required');
         return res.status(400).json({ message: 'Player name is required' });
       }
       
@@ -88,110 +87,99 @@ export default async function handler(req, res) {
         }
       }
       
-      // FIXED: Handle jersey number properly
-      let jerseyNumber = null;
-      if (playerData.jerseyNumber !== undefined && playerData.jerseyNumber !== null && playerData.jerseyNumber !== '') {
+      // Process jersey number - SIMPLIFIED
+      let jerseyNumber = undefined; // Don't include the field at all if no number
+      if (playerData.jerseyNumber && 
+          playerData.jerseyNumber !== '' && 
+          playerData.jerseyNumber !== 'null' && 
+          playerData.jerseyNumber !== null) {
         const parsedJersey = parseInt(playerData.jerseyNumber);
         if (!isNaN(parsedJersey) && parsedJersey > 0) {
           jerseyNumber = parsedJersey;
         }
       }
       
-      // Prepare clean player data - FIXED FREE AGENT HANDLING
+      // Process current team - SIMPLIFIED
+      let currentTeam = undefined; // Don't include if no team
+      if (playerData.currentTeam && 
+          playerData.currentTeam !== '' && 
+          playerData.currentTeam !== 'null') {
+        currentTeam = playerData.currentTeam;
+      }
+      
+      // Build clean player data - ONLY include fields that have values
       const cleanPlayerData = {
         name: playerData.name.trim(),
-        idCardNumber: playerData.idCardNumber ? playerData.idCardNumber.trim() : undefined,
-        email: playerData.email || undefined,
-        phone: playerData.phone || undefined,
-        dateOfBirth: playerData.dateOfBirth || null,
-        nationality: playerData.nationality || '',
-        position: playerData.position || undefined,
-        jerseyNumber: jerseyNumber, // Use processed jersey number
-        height: playerData.height ? parseFloat(playerData.height) : undefined,
-        weight: playerData.weight ? parseFloat(playerData.weight) : undefined,
-        photo: photoUrl,
-        // FIXED: Handle empty strings and convert to null for free agents
-        currentTeam: (playerData.currentTeam && playerData.currentTeam !== '' && playerData.currentTeam !== 'null') 
-          ? playerData.currentTeam 
-          : null,
-        status: playerData.status || 'active',
-        
-        emergencyContact: {
-          name: playerData.emergencyContact?.name || '',
-          phone: playerData.emergencyContact?.phone || '',
-          relationship: playerData.emergencyContact?.relationship || ''
-        },
-        
-        medicalInfo: {
-          bloodType: playerData.medicalInfo?.bloodType || '',
-          allergies: Array.isArray(playerData.medicalInfo?.allergies) 
-            ? playerData.medicalInfo.allergies 
-            : (playerData.medicalInfo?.allergies ? [playerData.medicalInfo.allergies] : []),
-          conditions: Array.isArray(playerData.medicalInfo?.conditions) 
-            ? playerData.medicalInfo.conditions 
-            : (playerData.medicalInfo?.conditions ? [playerData.medicalInfo.conditions] : []),
-          notes: playerData.medicalInfo?.notes || ''
-        },
-        
-        careerStats: {
-          appearances: 0,
-          goals: 0,
-          assists: 0,
-          yellowCards: 0,
-          redCards: 0,
-          minutesPlayed: 0,
-          wins: 0,
-          losses: 0,
-          draws: 0
-        },
-        
-        notes: playerData.notes || ''
+        status: playerData.status || 'active'
       };
       
-      // Remove undefined values
-      Object.keys(cleanPlayerData).forEach(key => {
-        if (cleanPlayerData[key] === undefined) {
-          delete cleanPlayerData[key];
-        }
-      });
+      // Add optional fields only if they have values
+      if (playerData.idCardNumber && playerData.idCardNumber.trim()) {
+        cleanPlayerData.idCardNumber = playerData.idCardNumber.trim();
+      }
+      if (playerData.email && playerData.email.trim()) {
+        cleanPlayerData.email = playerData.email.trim();
+      }
+      if (playerData.phone && playerData.phone.trim()) {
+        cleanPlayerData.phone = playerData.phone.trim();
+      }
+      if (playerData.dateOfBirth) {
+        cleanPlayerData.dateOfBirth = playerData.dateOfBirth;
+      }
+      if (playerData.nationality && playerData.nationality.trim()) {
+        cleanPlayerData.nationality = playerData.nationality.trim();
+      }
+      if (playerData.position && playerData.position.trim()) {
+        cleanPlayerData.position = playerData.position.trim();
+      }
+      if (jerseyNumber !== undefined) {
+        cleanPlayerData.jerseyNumber = jerseyNumber;
+      }
+      if (playerData.height) {
+        cleanPlayerData.height = parseFloat(playerData.height);
+      }
+      if (playerData.weight) {
+        cleanPlayerData.weight = parseFloat(playerData.weight);
+      }
+      if (photoUrl) {
+        cleanPlayerData.photo = photoUrl;
+      }
+      if (currentTeam) {
+        cleanPlayerData.currentTeam = currentTeam;
+      }
+      
+      // Add nested objects if they exist
+      if (playerData.emergencyContact) {
+        cleanPlayerData.emergencyContact = {
+          name: playerData.emergencyContact.name || '',
+          phone: playerData.emergencyContact.phone || '',
+          relationship: playerData.emergencyContact.relationship || ''
+        };
+      }
+      
+      if (playerData.medicalInfo) {
+        cleanPlayerData.medicalInfo = {
+          bloodType: playerData.medicalInfo.bloodType || '',
+          allergies: Array.isArray(playerData.medicalInfo.allergies) 
+            ? playerData.medicalInfo.allergies 
+            : (playerData.medicalInfo.allergies ? [playerData.medicalInfo.allergies] : []),
+          conditions: Array.isArray(playerData.medicalInfo.conditions) 
+            ? playerData.medicalInfo.conditions 
+            : (playerData.medicalInfo.conditions ? [playerData.medicalInfo.conditions] : []),
+          notes: playerData.medicalInfo.notes || ''
+        };
+      }
+      
+      if (playerData.notes && playerData.notes.trim()) {
+        cleanPlayerData.notes = playerData.notes.trim();
+      }
       
       console.log('Clean player data:', JSON.stringify(cleanPlayerData, null, 2));
       
-      // Validate team exists if provided (skip validation for free agents)
-      if (cleanPlayerData.currentTeam) {
-        if (!mongoose.Types.ObjectId.isValid(cleanPlayerData.currentTeam)) {
-          return res.status(400).json({ message: 'Invalid team ID format' });
-        }
-        
-        const team = await Team.findById(cleanPlayerData.currentTeam);
-        if (!team) {
-          return res.status(400).json({ message: 'Team not found' });
-        }
-      }
+      // SKIP ALL JERSEY NUMBER VALIDATION - Let MongoDB handle it
+      console.log('Skipping jersey number validation - letting database handle constraints');
       
-      // FIXED: Check for duplicate jersey number ONLY if both team and jersey exist
-      if (cleanPlayerData.currentTeam && cleanPlayerData.jerseyNumber) {
-        console.log(`Checking jersey number ${cleanPlayerData.jerseyNumber} for team ${cleanPlayerData.currentTeam}`);
-        
-        const existingPlayer = await Player.findOne({
-          currentTeam: cleanPlayerData.currentTeam,
-          jerseyNumber: cleanPlayerData.jerseyNumber,
-          status: { $in: ['active', 'injured', 'suspended'] }
-        });
-        
-        if (existingPlayer) {
-          console.log(`Jersey conflict: Player ${existingPlayer.name} already has number ${cleanPlayerData.jerseyNumber}`);
-          return res.status(400).json({ 
-            message: `Jersey number ${cleanPlayerData.jerseyNumber} is already taken by ${existingPlayer.name} in this team` 
-          });
-        } else {
-          console.log(`Jersey number ${cleanPlayerData.jerseyNumber} is available`);
-        }
-      } else {
-        console.log('Skipping jersey validation - no team or no jersey number assigned');
-      }
-      
-      // Check for duplicate ID card number
+      // Check for duplicate ID card number only
       if (cleanPlayerData.idCardNumber) {
         const existingPlayer = await Player.findOne({
           idCardNumber: cleanPlayerData.idCardNumber
@@ -204,12 +192,13 @@ export default async function handler(req, res) {
         }
       }
       
-      // Create the player
+      // Create the player directly without jersey validation
       try {
+        console.log('Creating player directly in database...');
         const player = new Player(cleanPlayerData);
         await player.save();
         
-        console.log('Player created successfully:', player._id);
+        console.log('✅ Player created successfully:', player._id);
         
         // AUTO-CREATE TRANSFER RECORD if player has a team
         if (cleanPlayerData.currentTeam) {
@@ -219,7 +208,7 @@ export default async function handler(req, res) {
             if (activeSeason) {
               const transferRecord = new Transfer({
                 player: player._id,
-                fromTeam: null, // New registration
+                fromTeam: null,
                 toTeam: cleanPlayerData.currentTeam,
                 season: activeSeason._id,
                 transferType: 'registration',
@@ -229,14 +218,11 @@ export default async function handler(req, res) {
               });
               
               await transferRecord.save();
-              console.log('✅ Transfer record created for new player');
+              console.log('✅ Transfer record created');
             }
           } catch (transferError) {
-            console.error('Failed to create transfer record:', transferError);
-            // Don't fail the whole operation if transfer creation fails
+            console.error('Transfer record failed:', transferError);
           }
-        } else {
-          console.log('Player created as free agent - no transfer record needed');
         }
         
         // Return populated player
@@ -245,28 +231,43 @@ export default async function handler(req, res) {
           .lean();
         
         return res.status(201).json(populatedPlayer);
-      } catch (saveError) {
-        console.error('Player save error:', saveError);
         
+      } catch (saveError) {
+        console.error('❌ Database save error:', saveError);
+        
+        // Handle specific MongoDB errors
         if (saveError.code === 11000) {
-          const field = Object.keys(saveError.keyPattern)[0];
+          const field = Object.keys(saveError.keyPattern || {})[0];
+          const value = saveError.keyValue?.[field];
+          
+          if (field === 'jerseyNumber') {
+            return res.status(400).json({ 
+              message: `Jersey number ${value} is already taken in this team`
+            });
+          }
+          
           return res.status(400).json({ 
-            message: `A player with this ${field} already exists` 
+            message: `A player with this ${field} already exists`
           });
         }
         
         if (saveError.name === 'ValidationError') {
           const errors = Object.values(saveError.errors).map(err => err.message);
           return res.status(400).json({ 
-            message: 'Validation failed', 
-            errors 
+            message: 'Player validation failed', 
+            errors
           });
         }
         
-        throw saveError;
+        // Generic error
+        return res.status(500).json({
+          message: 'Failed to create player',
+          error: saveError.message
+        });
       }
     }
 
+    // Simplified PUT method
     if (req.method === 'PUT') {
       const { id } = req.query;
       const updateData = req.body;
@@ -275,119 +276,17 @@ export default async function handler(req, res) {
         return res.status(400).json({ message: 'Invalid player ID' });
       }
       
-      console.log('Updating player with data:', JSON.stringify(updateData, null, 2));
-      
-      // Get current player state for transfer tracking
-      const currentPlayer = await Player.findById(id);
-      if (!currentPlayer) {
-        return res.status(404).json({ message: 'Player not found' });
-      }
-      
-      // Handle photo data for updates
-      if (updateData.photo) {
-        if (typeof updateData.photo === 'string' && updateData.photo.startsWith('http')) {
-          updateData.photo = updateData.photo;
-        } else if (updateData.photo.url) {
-          updateData.photo = updateData.photo.url;
-        } else if (updateData.photo.secure_url) {
-          updateData.photo = updateData.photo.secure_url;
-        }
-      }
-      
-      // FIXED: Handle jersey number in updates
-      if (updateData.jerseyNumber !== undefined) {
-        if (updateData.jerseyNumber === null || updateData.jerseyNumber === '' || updateData.jerseyNumber === 0) {
-          updateData.jerseyNumber = null;
-        } else {
-          const parsedJersey = parseInt(updateData.jerseyNumber);
-          if (!isNaN(parsedJersey) && parsedJersey > 0) {
-            updateData.jerseyNumber = parsedJersey;
-          } else {
-            updateData.jerseyNumber = null;
-          }
-        }
-      }
-      
-      // FIXED: Handle free agent assignment properly
-      if (updateData.currentTeam === '' || updateData.currentTeam === 'null' || updateData.currentTeam === null || updateData.currentTeam === undefined) {
-        updateData.currentTeam = null;
-        updateData.jerseyNumber = null; // Clear jersey when becoming free agent
-        console.log('Setting player as free agent (currentTeam: null, jerseyNumber: null)');
-      }
-      
-      // Validate team if provided (skip for free agents)
-      if (updateData.currentTeam) {
-        if (!mongoose.Types.ObjectId.isValid(updateData.currentTeam)) {
-          return res.status(400).json({ message: 'Invalid team ID format' });
-        }
-        
-        const team = await Team.findById(updateData.currentTeam);
-        if (!team) {
-          return res.status(400).json({ message: 'Team not found' });
-        }
-      }
-      
-      // FIXED: Check for jersey number conflicts in updates
-      if (updateData.currentTeam && updateData.jerseyNumber) {
-        console.log(`Checking jersey ${updateData.jerseyNumber} for team ${updateData.currentTeam} (excluding player ${id})`);
-        
-        const existingPlayer = await Player.findOne({
-          currentTeam: updateData.currentTeam,
-          jerseyNumber: updateData.jerseyNumber,
-          _id: { $ne: id }, // Exclude current player
-          status: { $in: ['active', 'injured', 'suspended'] }
-        });
-        
-        if (existingPlayer) {
-          console.log(`Jersey conflict: Player ${existingPlayer.name} already has number ${updateData.jerseyNumber}`);
-          return res.status(400).json({ 
-            message: `Jersey number ${updateData.jerseyNumber} is already taken by ${existingPlayer.name} in this team` 
-          });
-        }
-      }
-      
-      // Update the player
+      // Just update without complex validation
       const updatedPlayer = await Player.findByIdAndUpdate(
         id,
         updateData,
-        { new: true, runValidators: false } // Skip mongoose validations that might interfere
+        { new: true, runValidators: false }
       ).populate('currentTeam', 'name');
 
       if (!updatedPlayer) {
         return res.status(404).json({ message: 'Player not found' });
       }
 
-      // AUTO-CREATE TRANSFER RECORD if team changed
-      const oldTeam = currentPlayer.currentTeam?.toString();
-      const newTeam = updatedPlayer.currentTeam?._id?.toString();
-      
-      if (oldTeam !== newTeam) {
-        try {
-          const activeSeason = await Season.findOne({ isActive: true });
-          
-          if (activeSeason && newTeam) {
-            // Only create transfer if moving to a team (not becoming free agent)
-            const transferRecord = new Transfer({
-              player: updatedPlayer._id,
-              fromTeam: oldTeam || null,
-              toTeam: newTeam,
-              season: activeSeason._id,
-              transferType: oldTeam ? 'transfer' : 'registration',
-              transferDate: new Date(),
-              transferFee: 0,
-              notes: oldTeam ? 'Player transfer between teams' : 'Player assigned to team'
-            });
-            
-            await transferRecord.save();
-            console.log('✅ Transfer record created for team change');
-          }
-        } catch (transferError) {
-          console.error('Failed to create transfer record:', transferError);
-          // Don't fail the update if transfer creation fails
-        }
-      }
-
-      console.log('Player updated successfully:', updatedPlayer.name, 'Team:', updatedPlayer.currentTeam?.name || 'Free Agent');
       return res.status(200).json(updatedPlayer);
     }
 
@@ -412,8 +311,7 @@ export default async function handler(req, res) {
     console.error('Admin players API error:', error);
     return res.status(500).json({ 
       message: 'Internal server error', 
-      error: error.message,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      error: error.message
     });
   }
 }
