@@ -173,15 +173,15 @@ export default function TransfersPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
-        <h1 className="text-3xl font-bold text-gray-900">Transfer Market</h1>
+      <div className="flex flex-col space-y-4">
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Transfer Market</h1>
         
-        <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
+        <div className="flex flex-col space-y-3">
           {/* Transfer Type Filter */}
           <select
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="form-input w-48"
+            className="form-input w-full"
           >
             <option value="all">All Transfers</option>
             <option value="registration">New Registrations</option>
@@ -195,7 +195,7 @@ export default function TransfersPage() {
             <select
               value={selectedSeason}
               onChange={(e) => setSelectedSeason(e.target.value)}
-              className="form-input w-48"
+              className="form-input w-full"
             >
               <option value="">All Seasons</option>
               {seasons.map(season => (
@@ -229,45 +229,45 @@ export default function TransfersPage() {
 
       {/* Transfer Statistics */}
       {transfers.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="card text-center">
-            <div className="text-2xl mb-2">🆕</div>
-            <h3 className="text-2xl font-bold text-green-600">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="card text-center p-3">
+            <div className="text-xl mb-1">🆕</div>
+            <h3 className="text-lg sm:text-xl font-bold text-green-600">
               {transfers.filter(t => t.transferType === 'registration').length}
             </h3>
-            <p className="text-gray-600">Registrations</p>
+            <p className="text-gray-600 text-xs sm:text-sm">Registrations</p>
           </div>
           
-          <div className="card text-center">
-            <div className="text-2xl mb-2">🔄</div>
-            <h3 className="text-2xl font-bold text-blue-600">
+          <div className="card text-center p-3">
+            <div className="text-xl mb-1">🔄</div>
+            <h3 className="text-lg sm:text-xl font-bold text-blue-600">
               {transfers.filter(t => t.transferType === 'transfer').length}
             </h3>
-            <p className="text-gray-600">Transfers</p>
+            <p className="text-gray-600 text-xs sm:text-sm">Transfers</p>
           </div>
           
-          <div className="card text-center">
-            <div className="text-2xl mb-2">📋</div>
-            <h3 className="text-2xl font-bold text-yellow-600">
+          <div className="card text-center p-3">
+            <div className="text-xl mb-1">📋</div>
+            <h3 className="text-lg sm:text-xl font-bold text-yellow-600">
               {transfers.filter(t => t.transferType === 'loan').length}
             </h3>
-            <p className="text-gray-600">Loans</p>
+            <p className="text-gray-600 text-xs sm:text-sm">Loans</p>
           </div>
           
-          <div className="card text-center">
-            <div className="text-2xl mb-2">🔓</div>
-            <h3 className="text-2xl font-bold text-red-600">
+          <div className="card text-center p-3">
+            <div className="text-xl mb-1">🔓</div>
+            <h3 className="text-lg sm:text-xl font-bold text-red-600">
               {transfers.filter(t => t.transferType === 'release').length}
             </h3>
-            <p className="text-gray-600">Releases</p>
+            <p className="text-gray-600 text-xs sm:text-sm">Releases</p>
           </div>
           
-          <div className="card text-center">
-            <DollarSign className="w-8 h-8 text-purple-600 mx-auto mb-2" />
-            <h3 className="text-2xl font-bold text-purple-600">
+          <div className="card text-center p-3 col-span-2 sm:col-span-1">
+            <div className="text-xl mb-1">💰</div>
+            <h3 className="text-sm sm:text-lg font-bold text-purple-600">
               MVR {transfers.reduce((sum, t) => sum + (t.transferFee || 0), 0).toLocaleString()}
             </h3>
-            <p className="text-gray-600">Total Value</p>
+            <p className="text-gray-600 text-xs sm:text-sm">Total Value</p>
           </div>
         </div>
       )}
