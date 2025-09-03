@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/admin/stats.js (NEW - Admin Statistics API)
+// FILE: pages/api/admin/stats.js (FIXED - All Correct Imports)
 // ===========================================
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
@@ -9,7 +9,7 @@ import Team from '../../../models/Team';
 import Match from '../../../models/Match';
 import Season from '../../../models/Season';
 import Transfer from '../../../models/Transfer';
-import FairPlay from '../../../models/FairPlay';
+import FairPlayRecord from '../../../models/FairPlayRecord';
 
 export default async function handler(req, res) {
   try {
@@ -51,7 +51,7 @@ export default async function handler(req, res) {
       Transfer.countDocuments({}).catch(() => 0), // Handle if Transfer model doesn't exist
       
       // Total fair play records
-      FairPlay.countDocuments({}).catch(() => 0), // Handle if FairPlay model doesn't exist
+      FairPlayRecord.countDocuments({}).catch(() => 0), // Handle if FairPlayRecord model doesn't exist
       
       // Season-specific stats (if active season exists)
       seasonId ? await getSeasonStats(seasonId) : {}
