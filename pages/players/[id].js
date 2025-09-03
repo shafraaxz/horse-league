@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/players/[id].js (COMPLETE PLAYER PROFILE)
+// FILE: pages/players/[id].js (UPDATED WITH CONTRACT INFORMATION)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
@@ -20,7 +20,9 @@ import {
   Clock,
   Heart,
   Shield,
-  ChevronRight
+  ChevronRight,
+  FileText,
+  AlertCircle
 } from 'lucide-react';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { format } from 'date-fns';
@@ -64,7 +66,6 @@ export default function PlayerProfile() {
       const playerResponse = await fetch(`/api/public/players?search=${id}`);
       if (playerResponse.ok) {
         const playersData = await playerResponse.json();
-        // Find the specific player by ID
         const foundPlayer = Array.isArray(playersData) ? 
           playersData.find(p => p._id === id) : null;
         
@@ -123,6 +124,25 @@ export default function PlayerProfile() {
       case 'injured': return 'bg-red-100 text-red-800';
       case 'suspended': return 'bg-yellow-100 text-yellow-800';
       default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // NEW: Contract status helpers
+  const getContractStatusColor = (contractStatus) => {
+    switch (contractStatus) {
+      case 'normal': return 'bg-blue-100 text-blue-800';
+      case 'seasonal': return 'bg-purple-100 text-purple-800';
+      case 'free_agent': return 'bg-green-100 text-green-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const getContractStatusIcon = (contractStatus) => {
+    switch (contractStatus) {
+      case 'normal': return <FileText className="w-4 h-4" />;
+      case 'seasonal': return <Clock className="w-4 h-4" />;
+      case 'free_agent': return <User className="w-4 h-4" />;
+      default: return <FileText className="w-4 h-4" />;
     }
   };
 
@@ -198,6 +218,23 @@ export default function PlayerProfile() {
                 <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(player.status)}`}>
                   {player.status?.charAt(0).toUpperCase() + player.status?.slice(1)}
                 </span>
+
+                {/* NEW: Contract Status Display */}
+                {player.contractStatus && (
+                  <div className="flex items-center space-x-1">
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-1 ${
+                      getContractStatusColor(player.contractStatus)
+                    }`}>
+                      {getContractStatusIcon(player.contractStatus)}
+                      <span>
+                        {player.contractStatus === 'free_agent' ? 'Free Agent' :
+                         player.contractStatus === 'normal' ? 'Normal Contract' :
+                         player.contractStatus === 'seasonal' ? 'Seasonal Contract' : 
+                         'Unknown'}
+                      </span>
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center space-x-6 text-gray-600">
@@ -252,6 +289,7 @@ export default function PlayerProfile() {
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'overview', name: 'Overview', icon: User },
+            { id: 'contract', name: 'Contract', icon: FileText }, // NEW: Contract tab
             { id: 'stats', name: 'Statistics', icon: TrendingUp },
             { id: 'matches', name: 'Match History', icon: Calendar },
             { id: 'transfers', name: 'Transfer History', icon: Activity },
@@ -317,6 +355,24 @@ export default function PlayerProfile() {
                     <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(player.status)}`}>
                       {player.status?.charAt(0).toUpperCase() + player.status?.slice(1)}
                     </span>
+                  </div>
+
+                  {/* NEW: Contract Status Overview */}
+                  <div>
+                    <div className="text-sm text-gray-600">Contract Status</div>
+                    <div className="flex items-center space-x-2 mt-1">
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                        getContractStatusColor(player.contractStatus)
+                      }`}>
+                        {getContractStatusIcon(player.contractStatus)}
+                        <span className="ml-1">
+                          {player.contractStatus === 'free_agent' ? 'Free Agent' :
+                           player.contractStatus === 'normal' ? 'Normal' :
+                           player.contractStatus === 'seasonal' ? 'Seasonal' : 
+                           'Unknown'}
+                        </span>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -442,6 +498,181 @@ export default function PlayerProfile() {
           </div>
         )}
 
+        {/* NEW: Contract Tab */}
+        {activeTab === 'contract' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Current Contract */}
+            <div className="card">
+              <h3 className="text-lg font-semibold mb-4 flex items-center">
+                <FileText className="w-5 h-5 mr-2 text-blue-600" />
+                Current Contract Status
+              </h3>
+              
+              {player.contractStatus === 'free_agent' ? (
+                <div className="text-center py-8">
+                  <User className="w-16 h-16 text-green-500 mx-auto mb-4" />
+                  <h4 className="text-xl font-semibold text-green-800 mb-2">Free Agent</h4>
+                  <p className="text-green-600">
+                    This player is currently available for signing by any team.
+                  </p>
+                </div>
+              ) : player.currentContract ? (
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                    <span className="font-medium text-blue-900">Contract Type:</span>
+                    <div className="flex items-center space-x-2">
+                      {getContractStatusIcon(player.currentContract.contractType)}
+                      <span className="font-semibold capitalize">
+                        {player.currentContract.contractType}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {player.currentContract.team && (
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium">Team:</span>
+                      <span className="font-semibold">{player.currentContract.team.name}</span>
+                    </div>
+                  )}
+                  
+                  {player.currentContract.season && (
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium">Season:</span>
+                      <span className="font-semibold">
+                        {player.currentContract.season.name}
+                        {player.currentContract.season.isActive && (
+                          <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                            Active
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {player.currentContract.startDate && (
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium">Start Date:</span>
+                      <span className="font-semibold">
+                        {format(new Date(player.currentContract.startDate), 'MMM dd, yyyy')}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {player.currentContract.endDate ? (
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium">End Date:</span>
+                      <span className="font-semibold">
+                        {format(new Date(player.currentContract.endDate), 'MMM dd, yyyy')}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium">Contract Duration:</span>
+                      <span className="font-semibold text-blue-600">Open-ended</span>
+                    </div>
+                  )}
+                  
+                  {player.currentContract.contractValue > 0 && (
+                    <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                      <span className="font-medium text-green-800">Contract Value:</span>
+                      <span className="font-bold text-green-600">
+                        MVR {player.currentContract.contractValue.toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <AlertCircle className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500">No contract information available</p>
+                </div>
+              )}
+            </div>
+
+            {/* Transfer Eligibility */}
+            <div className="card">
+              <h3 className="text-lg font-semibold mb-4 flex items-center">
+                <Activity className="w-5 h-5 mr-2 text-purple-600" />
+                Transfer Eligibility
+              </h3>
+              
+              <div className="space-y-4">
+                {player.contractStatus === 'free_agent' ? (
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                      <span className="font-semibold text-green-800">Transfer Available</span>
+                    </div>
+                    <p className="text-green-700 text-sm">
+                      Player can join any team at any time during transfer windows.
+                    </p>
+                  </div>
+                ) : player.contractStatus === 'normal' ? (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                      <span className="font-semibold text-blue-800">Mid-Season Transfer Allowed</span>
+                    </div>
+                    <p className="text-blue-700 text-sm">
+                      Normal contract allows transfers during the season with team agreement.
+                    </p>
+                  </div>
+                ) : player.contractStatus === 'seasonal' ? (
+                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                      <span className="font-semibold text-yellow-800">Season-End Transfer Only</span>
+                    </div>
+                    <p className="text-yellow-700 text-sm">
+                      Seasonal contract restricts transfers until the current season ends.
+                    </p>
+                    {player.currentContract?.season?.isActive && (
+                      <p className="text-yellow-600 text-xs mt-2">
+                        Current season is still active - transfers blocked.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="flex items-center space-x-2 mb-2">
+                      <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
+                      <span className="font-semibold text-gray-800">Status Unknown</span>
+                    </div>
+                    <p className="text-gray-700 text-sm">
+                      Transfer eligibility information is not available.
+                    </p>
+                  </div>
+                )}
+
+                {/* Contract Rules Explanation */}
+                <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h4 className="font-semibold text-blue-900 mb-2">Contract Types Explained</h4>
+                  <div className="space-y-2 text-sm text-blue-800">
+                    <div className="flex items-start space-x-2">
+                      <FileText className="w-4 h-4 mt-0.5 text-blue-600" />
+                      <div>
+                        <strong>Normal Contract:</strong> Allows mid-season transfers with mutual agreement
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-2">
+                      <Clock className="w-4 h-4 mt-0.5 text-purple-600" />
+                      <div>
+                        <strong>Seasonal Contract:</strong> Player committed until season ends
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-2">
+                      <User className="w-4 h-4 mt-0.5 text-green-600" />
+                      <div>
+                        <strong>Free Agent:</strong> Available for signing by any team
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'stats' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Career Stats */}
@@ -539,117 +770,4 @@ export default function PlayerProfile() {
                   
                   let result = '';
                   let resultColor = '';
-                  if (match.status === 'completed') {
-                    if (teamScore > opponentScore) {
-                      result = 'W';
-                      resultColor = 'bg-green-100 text-green-800';
-                    } else if (teamScore < opponentScore) {
-                      result = 'L';
-                      resultColor = 'bg-red-100 text-red-800';
-                    } else {
-                      result = 'D';
-                      resultColor = 'bg-yellow-100 text-yellow-800';
-                    }
-                  }
-                  
-                  return (
-                    <div key={match._id || index} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="text-sm text-gray-600">
-                            {format(new Date(match.matchDate), 'MMM dd, yyyy')}
-                          </div>
-                          <div className="font-medium">
-                            {isPlayerTeamHome ? 'vs' : '@'} {opponent?.name}
-                          </div>
-                          {match.venue && (
-                            <div className="text-sm text-gray-500">
-                              at {match.venue}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-3">
-                          {match.status === 'completed' && (
-                            <>
-                              <div className="font-bold text-lg">
-                                {teamScore} - {opponentScore}
-                              </div>
-                              {result && (
-                                <span className={`px-2 py-1 rounded text-sm font-bold ${resultColor}`}>
-                                  {result}
-                                </span>
-                              )}
-                            </>
-                          )}
-                          {match.status === 'scheduled' && (
-                            <span className="text-blue-600 text-sm">
-                              {format(new Date(match.matchDate), 'HH:mm')}
-                            </span>
-                          )}
-                          <Link href={`/matches/${match._id}`} className="text-blue-600 hover:text-blue-800 text-sm">
-                            View Match
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No match history available</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'transfers' && (
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-6">Transfer History</h3>
-            {playerTransfers.length > 0 ? (
-              <div className="space-y-4">
-                {playerTransfers.map((transfer, index) => (
-                  <div key={transfer._id || index} className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="text-sm text-gray-600">
-                          {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
-                        </div>
-                        <div className="font-medium">
-                          {transfer.fromTeam ? transfer.fromTeam.name : 'New Registration'} 
-                          → {transfer.toTeam?.name || 'Free Agent'}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          transfer.transferType === 'registration' ? 'bg-green-100 text-green-800' :
-                          transfer.transferType === 'transfer' ? 'bg-blue-100 text-blue-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}>
-                          {transfer.transferType?.toUpperCase()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No transfer history available</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Back to Players */}
-      <div className="flex justify-center">
-        <Link href="/players" className="btn btn-secondary">
-          ← Back to All Players
-        </Link>
-      </div>
-    </div>
-  );
-}
+                  if (match.status ===
