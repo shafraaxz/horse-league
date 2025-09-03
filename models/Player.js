@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: models/Player.js (UPDATED WITH ID CARD SKU & FIXED VALIDATION)
+// FILE: models/Player.js (UPDATED WITH CONTRACT STATUS)
 // ===========================================
 import mongoose from 'mongoose';
 
@@ -43,6 +43,26 @@ const careerStatsSchema = new mongoose.Schema({
   losses: { type: Number, default: 0 },
   draws: { type: Number, default: 0 }
 }, { _id: false });
+
+// NEW: Contract history schema
+const contractHistorySchema = new mongoose.Schema({
+  team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
+  season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season', required: true },
+  contractType: { 
+    type: String, 
+    enum: ['normal', 'seasonal'], 
+    default: 'normal' 
+  },
+  startDate: { type: Date, required: true },
+  endDate: { type: Date }, // null for open-ended contracts
+  status: { 
+    type: String, 
+    enum: ['active', 'expired', 'terminated'], 
+    default: 'active' 
+  },
+  contractValue: { type: Number, default: 0 }, // in MVR
+  notes: { type: String, default: '' }
+}, { timestamps: true });
 
 const transferHistorySchema = new mongoose.Schema({
   fromTeam: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
@@ -125,6 +145,27 @@ const playerSchema = new mongoose.Schema({
     default: 'active'
   },
   
+  // NEW: Contract Information
+  contractStatus: {
+    type: String,
+    enum: ['normal', 'seasonal', 'free_agent'],
+    default: 'free_agent'
+  },
+  currentContract: {
+    team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
+    season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season' },
+    contractType: { 
+      type: String, 
+      enum: ['normal', 'seasonal'], 
+      default: 'normal' 
+    },
+    startDate: { type: Date },
+    endDate: { type: Date }, // null for open-ended normal contracts
+    contractValue: { type: Number, default: 0 }, // in MVR
+    transferEligible: { type: Boolean, default: true }, // computed field
+    notes: { type: String, default: '' }
+  },
+  
   // Statistics
   seasonStats: {
     type: Map,
@@ -139,6 +180,7 @@ const playerSchema = new mongoose.Schema({
   // History
   transferHistory: [transferHistorySchema],
   matchHistory: [matchHistorySchema],
+  contractHistory: [contractHistorySchema], // NEW: Track all contracts
   currentTeamHistory: [{
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
     season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season', required: true },
@@ -172,6 +214,7 @@ playerSchema.index({ currentTeam: 1, status: 1 });
 playerSchema.index({ email: 1 }, { sparse: true });
 playerSchema.index({ name: 1 });
 playerSchema.index({ idCardNumber: 1 }, { sparse: true, unique: true });
+playerSchema.index({ contractStatus: 1 }); // NEW: Index for contract queries
 
 // FIXED: Jersey number uniqueness only when both team and number exist
 playerSchema.index(
@@ -199,6 +242,26 @@ playerSchema.virtual('age').get(function() {
   return age;
 });
 
+// NEW: Virtual for transfer eligibility
+playerSchema.virtual('isTransferEligible').get(function() {
+  if (this.contractStatus === 'free_agent') return true;
+  
+  const contract = this.currentContract;
+  if (!contract || !contract.team) return true;
+  
+  // Normal contracts: can transfer anytime
+  if (contract.contractType === 'normal') return true;
+  
+  // Seasonal contracts: only at season end or if season is inactive
+  if (contract.contractType === 'seasonal') {
+    // This would need to check if the current season is active
+    // For now, we'll assume they can transfer if no active season
+    return false; // Will be computed in business logic
+  }
+  
+  return false;
+});
+
 // Virtual for current season stats
 playerSchema.virtual('currentSeasonStats').get(function() {
   if (!this.seasonStats || this.seasonStats.size === 0) return null;
@@ -212,6 +275,78 @@ playerSchema.virtual('currentSeasonStats').get(function() {
 playerSchema.methods.getSeasonStats = function(seasonId) {
   if (!this.seasonStats) return null;
   return this.seasonStats.get(seasonId.toString()) || null;
+};
+
+// NEW: Method to check if player can be transferred
+playerSchema.methods.canTransfer = async function(targetSeason) {
+  if (this.contractStatus === 'free_agent') return { canTransfer: true, reason: 'Free agent' };
+  
+  const contract = this.currentContract;
+  if (!contract || !contract.team) {
+    return { canTransfer: true, reason: 'No active contract' };
+  }
+  
+  // Normal contracts: can transfer anytime
+  if (contract.contractType === 'normal') {
+    return { canTransfer: true, reason: 'Normal contract allows mid-season transfers' };
+  }
+  
+  // Seasonal contracts: only when season ends
+  if (contract.contractType === 'seasonal') {
+    // Check if current season is still active
+    const Season = mongoose.model('Season');
+    const currentSeason = await Season.findById(contract.season);
+    
+    if (!currentSeason) {
+      return { canTransfer: true, reason: 'Contract season no longer exists' };
+    }
+    
+    if (!currentSeason.isActive) {
+      return { canTransfer: true, reason: 'Contract season has ended' };
+    }
+    
+    return { 
+      canTransfer: false, 
+      reason: 'Seasonal contract - transfers only allowed when season ends',
+      contractEndDate: contract.endDate || currentSeason.endDate
+    };
+  }
+  
+  return { canTransfer: false, reason: 'Unknown contract type' };
+};
+
+// NEW: Method to sign contract with team
+playerSchema.methods.signContract = function(contractData) {
+  // End current contract if exists
+  if (this.currentContract && this.currentContract.team) {
+    this.contractHistory.push({
+      ...this.currentContract,
+      status: 'terminated',
+      endDate: new Date()
+    });
+  }
+  
+  // Set new contract
+  this.currentContract = {
+    team: contractData.team,
+    season: contractData.season,
+    contractType: contractData.contractType || 'normal',
+    startDate: contractData.startDate || new Date(),
+    endDate: contractData.endDate || null,
+    contractValue: contractData.contractValue || 0,
+    notes: contractData.notes || ''
+  };
+  
+  // Update contract status
+  this.contractStatus = contractData.contractType || 'normal';
+  
+  // Add to contract history
+  this.contractHistory.push({
+    ...this.currentContract,
+    status: 'active'
+  });
+  
+  return this;
 };
 
 // Method to add transfer record
@@ -242,7 +377,7 @@ playerSchema.methods.addTransfer = function(transferData) {
   });
 };
 
-// FIXED: Pre-save middleware with better jersey number validation
+// UPDATED: Pre-save middleware with contract validation
 playerSchema.pre('save', async function(next) {
   try {
     // Only check jersey number if both team and jersey number are provided
@@ -273,6 +408,13 @@ playerSchema.pre('save', async function(next) {
         error.code = 'DUPLICATE_ID_CARD';
         return next(error);
       }
+    }
+    
+    // NEW: Update contract status based on current contract
+    if (this.currentContract && this.currentContract.team) {
+      this.contractStatus = this.currentContract.contractType || 'normal';
+    } else {
+      this.contractStatus = 'free_agent';
     }
     
     next();
