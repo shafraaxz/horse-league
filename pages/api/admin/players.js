@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/admin/players.js (ENHANCED - FIXED ALL ISSUES)
+// FILE: pages/api/admin/players.js (FIXED - Jersey Number Validation)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
@@ -88,6 +88,15 @@ export default async function handler(req, res) {
         }
       }
       
+      // FIXED: Handle jersey number properly
+      let jerseyNumber = null;
+      if (playerData.jerseyNumber !== undefined && playerData.jerseyNumber !== null && playerData.jerseyNumber !== '') {
+        const parsedJersey = parseInt(playerData.jerseyNumber);
+        if (!isNaN(parsedJersey) && parsedJersey > 0) {
+          jerseyNumber = parsedJersey;
+        }
+      }
+      
       // Prepare clean player data - FIXED FREE AGENT HANDLING
       const cleanPlayerData = {
         name: playerData.name.trim(),
@@ -97,7 +106,7 @@ export default async function handler(req, res) {
         dateOfBirth: playerData.dateOfBirth || null,
         nationality: playerData.nationality || '',
         position: playerData.position || undefined,
-        jerseyNumber: playerData.jerseyNumber ? parseInt(playerData.jerseyNumber) : undefined,
+        jerseyNumber: jerseyNumber, // Use processed jersey number
         height: playerData.height ? parseFloat(playerData.height) : undefined,
         weight: playerData.weight ? parseFloat(playerData.weight) : undefined,
         photo: photoUrl,
@@ -160,8 +169,10 @@ export default async function handler(req, res) {
         }
       }
       
-      // Check for duplicate jersey number (only if both team and jersey exist)
+      // FIXED: Check for duplicate jersey number ONLY if both team and jersey exist
       if (cleanPlayerData.currentTeam && cleanPlayerData.jerseyNumber) {
+        console.log(`Checking jersey number ${cleanPlayerData.jerseyNumber} for team ${cleanPlayerData.currentTeam}`);
+        
         const existingPlayer = await Player.findOne({
           currentTeam: cleanPlayerData.currentTeam,
           jerseyNumber: cleanPlayerData.jerseyNumber,
@@ -169,10 +180,15 @@ export default async function handler(req, res) {
         });
         
         if (existingPlayer) {
+          console.log(`Jersey conflict: Player ${existingPlayer.name} already has number ${cleanPlayerData.jerseyNumber}`);
           return res.status(400).json({ 
-            message: `Jersey number ${cleanPlayerData.jerseyNumber} is already taken by another player in this team` 
+            message: `Jersey number ${cleanPlayerData.jerseyNumber} is already taken by ${existingPlayer.name} in this team` 
           });
+        } else {
+          console.log(`Jersey number ${cleanPlayerData.jerseyNumber} is available`);
         }
+      } else {
+        console.log('Skipping jersey validation - no team or no jersey number assigned');
       }
       
       // Check for duplicate ID card number
@@ -278,16 +294,25 @@ export default async function handler(req, res) {
         }
       }
       
+      // FIXED: Handle jersey number in updates
+      if (updateData.jerseyNumber !== undefined) {
+        if (updateData.jerseyNumber === null || updateData.jerseyNumber === '' || updateData.jerseyNumber === 0) {
+          updateData.jerseyNumber = null;
+        } else {
+          const parsedJersey = parseInt(updateData.jerseyNumber);
+          if (!isNaN(parsedJersey) && parsedJersey > 0) {
+            updateData.jerseyNumber = parsedJersey;
+          } else {
+            updateData.jerseyNumber = null;
+          }
+        }
+      }
+      
       // FIXED: Handle free agent assignment properly
       if (updateData.currentTeam === '' || updateData.currentTeam === 'null' || updateData.currentTeam === null || updateData.currentTeam === undefined) {
         updateData.currentTeam = null;
-        console.log('Setting player as free agent (currentTeam: null)');
-      }
-      
-      // Clear jersey number when becoming free agent
-      if (updateData.currentTeam === null && currentPlayer.currentTeam) {
-        updateData.jerseyNumber = undefined;
-        console.log('Clearing jersey number for free agent');
+        updateData.jerseyNumber = null; // Clear jersey when becoming free agent
+        console.log('Setting player as free agent (currentTeam: null, jerseyNumber: null)');
       }
       
       // Validate team if provided (skip for free agents)
@@ -302,18 +327,21 @@ export default async function handler(req, res) {
         }
       }
       
-      // Check for jersey number conflicts
+      // FIXED: Check for jersey number conflicts in updates
       if (updateData.currentTeam && updateData.jerseyNumber) {
+        console.log(`Checking jersey ${updateData.jerseyNumber} for team ${updateData.currentTeam} (excluding player ${id})`);
+        
         const existingPlayer = await Player.findOne({
           currentTeam: updateData.currentTeam,
           jerseyNumber: updateData.jerseyNumber,
-          _id: { $ne: id },
+          _id: { $ne: id }, // Exclude current player
           status: { $in: ['active', 'injured', 'suspended'] }
         });
         
         if (existingPlayer) {
+          console.log(`Jersey conflict: Player ${existingPlayer.name} already has number ${updateData.jerseyNumber}`);
           return res.status(400).json({ 
-            message: `Jersey number ${updateData.jerseyNumber} is already taken by another player in this team` 
+            message: `Jersey number ${updateData.jerseyNumber} is already taken by ${existingPlayer.name} in this team` 
           });
         }
       }
