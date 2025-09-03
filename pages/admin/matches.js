@@ -637,17 +637,34 @@ function EnhancedMatchForm({ match, teams, seasons, selectedSeason, onClose, onS
 
   const fetchTeamPlayers = async (teamId, teamType) => {
     try {
+      console.log(`Fetching ${teamType} players for team:`, teamId);
       const response = await fetch(`/api/admin/players?teamId=${teamId}&status=active`);
+      console.log(`${teamType} players response status:`, response.status);
+      
       if (response.ok) {
         const players = await response.json();
+        console.log(`${teamType} players data:`, players);
+        
         if (teamType === 'home') {
           setHomePlayers(Array.isArray(players) ? players : []);
         } else {
           setAwayPlayers(Array.isArray(players) ? players : []);
         }
+      } else {
+        console.error(`Failed to fetch ${teamType} players:`, response.status);
+        if (teamType === 'home') {
+          setHomePlayers([]);
+        } else {
+          setAwayPlayers([]);
+        }
       }
     } catch (error) {
       console.error(`Error fetching ${teamType} team players:`, error);
+      if (teamType === 'home') {
+        setHomePlayers([]);
+      } else {
+        setAwayPlayers([]);
+      }
     }
   };
 
