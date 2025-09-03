@@ -1,4 +1,4 @@
-// FILE: pages/index.js (Fixed with better error handling and debug logs)
+// FILE: pages/index.js (Fixed with better statistics calculation)
 // ===========================================
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -86,56 +86,68 @@ export default function Home() {
         console.error('Error fetching upcoming matches:', error);
       }
 
-      // Fetch statistics - TRY BOTH PUBLIC AND FALLBACK
+      // FIXED: Better statistics calculation - always get fresh data
       try {
         console.log('Fetching statistics...');
-        const statsResponse = await fetch('/api/public/stats');
-        if (statsResponse.ok) {
-          const statsData = await statsResponse.json();
-          console.log('Public stats API response:', statsData);
-          setStats({
-            totalTeams: statsData.totalTeams || 0,
-            totalPlayers: statsData.totalPlayers || 0,
-            totalMatches: statsData.totalMatches || 0,
-            totalGoals: statsData.totalGoals || 0,
-          });
-        } else {
-          console.log('Public stats failed, using fallback calculation');
-          // Fallback stats calculation
-          const [teamsRes, playersRes] = await Promise.all([
-            fetch('/api/public/teams'),
-            fetch('/api/public/players')
-          ]);
-          
-          if (teamsRes.ok && playersRes.ok) {
-            const [teams, players] = await Promise.all([
-              teamsRes.json(),
-              playersRes.json()
-            ]);
-            
-            console.log('Fallback data:', {
-              teams: Array.isArray(teams) ? teams.length : 'not array',
-              players: Array.isArray(players) ? players.length : 'not array'
-            });
-            
-            setStats({
-              totalTeams: Array.isArray(teams) ? teams.length : 0,
-              totalPlayers: Array.isArray(players) ? players.length : 0,
-              totalMatches: 0,
-              totalGoals: Array.isArray(players) ? players.reduce((sum, p) => sum + (p.stats?.goals || 0), 0) : 0,
-            });
-          } else {
-            console.error('Fallback stats failed too');
-            setStats({
-              totalTeams: 0,
-              totalPlayers: 0,
-              totalMatches: 0,
-              totalGoals: 0,
-            });
+        
+        // Get fresh data from all APIs
+        const [teamsRes, playersRes, matchesRes] = await Promise.all([
+          fetch('/api/public/teams'),
+          fetch('/api/public/players'),
+          fetch('/api/public/matches')
+        ]);
+        
+        let totalTeams = 0;
+        let totalPlayers = 0;
+        let totalMatches = 0;
+        let totalGoals = 0;
+        
+        // Count teams
+        if (teamsRes.ok) {
+          const teams = await teamsRes.json();
+          totalTeams = Array.isArray(teams) ? teams.length : 0;
+          console.log('Total teams:', totalTeams);
+        }
+        
+        // Count players and calculate goals
+        if (playersRes.ok) {
+          const players = await playersRes.json();
+          if (Array.isArray(players)) {
+            totalPlayers = players.length;
+            totalGoals = players.reduce((sum, p) => {
+              const goals = p.stats?.goals || p.careerStats?.goals || 0;
+              return sum + goals;
+            }, 0);
+            console.log('Total players:', totalPlayers);
+            console.log('Total goals:', totalGoals);
           }
         }
+        
+        // Count matches
+        if (matchesRes.ok) {
+          const matches = await matchesRes.json();
+          totalMatches = Array.isArray(matches) ? matches.length : 0;
+          console.log('Total matches:', totalMatches);
+        }
+        
+        // Set the calculated stats
+        setStats({
+          totalTeams,
+          totalPlayers,
+          totalMatches,
+          totalGoals,
+        });
+        
+        console.log('Final stats:', {
+          totalTeams,
+          totalPlayers,
+          totalMatches,
+          totalGoals,
+        });
+        
       } catch (error) {
-        console.error('Error fetching statistics:', error);
+        console.error('Error calculating statistics:', error);
+        // Set zeros if everything fails
         setStats({
           totalTeams: 0,
           totalPlayers: 0,
@@ -247,7 +259,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Statistics Cards */}
+      {/* Statistics Cards - UPDATED WITH REFRESH BUTTON */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="card text-center">
           <Users className="w-12 h-12 text-blue-600 mx-auto mb-4" />
@@ -258,6 +270,8 @@ export default function Home() {
           <Users className="w-12 h-12 text-green-600 mx-auto mb-4" />
           <h3 className="text-2xl font-bold text-gray-900">{stats.totalPlayers}</h3>
           <p className="text-gray-600">Players</p>
+          {/* Debug info - remove after testing */}
+          <p className="text-xs text-gray-400 mt-1">Last updated: {new Date().toLocaleTimeString()}</p>
         </div>
         <div className="card text-center">
           <Calendar className="w-12 h-12 text-purple-600 mx-auto mb-4" />
@@ -268,6 +282,23 @@ export default function Home() {
           <Trophy className="w-12 h-12 text-yellow-600 mx-auto mb-4" />
           <h3 className="text-2xl font-bold text-gray-900">{stats.totalGoals}</h3>
           <p className="text-gray-600">Goals Scored</p>
+        </div>
+      </div>
+
+      {/* Debug Section - Remove after testing */}
+      <div className="card bg-gray-50 p-4">
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="font-semibold">Debug Info</h3>
+          <button 
+            onClick={fetchHomeData}
+            className="btn btn-sm btn-secondary"
+          >
+            Refresh Stats
+          </button>
+        </div>
+        <div className="text-sm text-gray-600">
+          <p>Teams: {stats.totalTeams} | Players: {stats.totalPlayers} | Matches: {stats.totalMatches} | Goals: {stats.totalGoals}</p>
+          <p>Recent Transfers: {recentTransfers.length} | Standings: {standings.length} | Upcoming: {upcomingMatches.length}</p>
         </div>
       </div>
 
@@ -353,7 +384,7 @@ export default function Home() {
                 </p>
                 <p className="text-sm text-gray-600">
                   {transfer.fromTeam ? `${transfer.fromTeam.name} → ` : 'New signing → '}
-                  {transfer.toTeam?.name || 'Unknown Team'}
+                  {transfer.toTeam?.name || 'Free Agent'}
                 </p>
                 <p className="text-xs text-gray-500">
                   {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
