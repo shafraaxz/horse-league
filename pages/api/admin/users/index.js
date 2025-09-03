@@ -1,9 +1,10 @@
 // pages/api/admin/users/index.js
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../../auth/[...nextauth]';
-import User from '../../../models/User'; // Correct path to your User model
+// Use the exact import paths from your working files
+import dbConnect from '../../../lib/mongodb';
+import User from '../../../models/User';
 import bcrypt from 'bcryptjs';
-import dbConnect from '../../../lib/mongodb'; // Your mongoose connection function
 
 export default async function handler(req, res) {
   try {
@@ -78,7 +79,7 @@ export default async function handler(req, res) {
           email,
           password: hashedPassword,
           role,
-          createdBy: session.user.id, // Track who created this user
+          createdBy: session.user.id || null, // Track who created this user
         });
 
         const savedUser = await newUser.save();
