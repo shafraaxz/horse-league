@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/teams/[id].js (UPDATED WITH LOGO FIX)
+// FILE: pages/teams/[id].js (UPDATED WITH CONTRACT STATUS AND FIXED STATS)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
@@ -15,7 +15,9 @@ import {
   Phone, 
   User,
   TrendingUp,
-  TrendingDown
+  TrendingDown,
+  FileText,
+  Clock
 } from 'lucide-react';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { format } from 'date-fns';
@@ -25,12 +27,10 @@ import { calculateAge } from '../../lib/utils';
 const getImageUrl = (imageData) => {
   if (!imageData) return null;
   
-  // If it's already a string URL
   if (typeof imageData === 'string' && imageData.startsWith('http')) {
     return imageData;
   }
   
-  // If it's an object with url property
   if (imageData && typeof imageData === 'object') {
     return imageData.url || imageData.secure_url || null;
   }
@@ -53,18 +53,6 @@ export default function TeamProfile() {
       fetchTeamData();
     }
   }, [id]);
-
-  // Debug team logo data
-  useEffect(() => {
-    if (team) {
-      console.log('Team profile logo debug:', {
-        teamName: team.name,
-        logoData: team.logo,
-        logoType: typeof team.logo,
-        extractedUrl: getImageUrl(team.logo)
-      });
-    }
-  }, [team]);
 
   const fetchTeamData = async () => {
     try {
@@ -105,6 +93,43 @@ export default function TeamProfile() {
     }
   };
 
+  // Calculate real-time team statistics from matches
+  const calculateTeamStats = () => {
+    const completedMatches = matches.filter(match => match.status === 'completed');
+    let wins = 0, draws = 0, losses = 0, goalsFor = 0, goalsAgainst = 0;
+
+    completedMatches.forEach(match => {
+      const isHome = match.homeTeam?._id === team._id;
+      const teamScore = isHome ? match.homeScore : match.awayScore;
+      const opponentScore = isHome ? match.awayScore : match.homeScore;
+
+      goalsFor += teamScore || 0;
+      goalsAgainst += opponentScore || 0;
+
+      if (teamScore > opponentScore) {
+        wins++;
+      } else if (teamScore < opponentScore) {
+        losses++;
+      } else {
+        draws++;
+      }
+    });
+
+    const points = (wins * 3) + (draws * 1);
+    const matchesPlayed = completedMatches.length;
+
+    return {
+      matchesPlayed,
+      wins,
+      draws,
+      losses,
+      points,
+      goalsFor,
+      goalsAgainst,
+      goalDifference: goalsFor - goalsAgainst
+    };
+  };
+
   const getMatchResult = (match) => {
     if (match.status !== 'completed') return null;
     
@@ -123,6 +148,25 @@ export default function TeamProfile() {
       case 'L': return 'bg-red-100 text-red-800';
       case 'D': return 'bg-yellow-100 text-yellow-800';
       default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // Contract status helpers
+  const getContractStatusColor = (contractStatus) => {
+    switch (contractStatus) {
+      case 'normal': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'seasonal': return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'free_agent': return 'bg-green-100 text-green-800 border-green-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getContractStatusIcon = (contractStatus) => {
+    switch (contractStatus) {
+      case 'normal': return <FileText className="w-3 h-3" />;
+      case 'seasonal': return <Clock className="w-3 h-3" />;
+      case 'free_agent': return <User className="w-3 h-3" />;
+      default: return <FileText className="w-3 h-3" />;
     }
   };
 
@@ -146,6 +190,9 @@ export default function TeamProfile() {
     );
   }
 
+  // Use calculated stats instead of stored stats
+  const stats = calculateTeamStats();
+
   return (
     <div className="space-y-8">
       {/* Team Header */}
@@ -161,7 +208,6 @@ export default function TeamProfile() {
                 className="rounded-full object-cover"
                 onError={(e) => {
                   console.error('Team profile logo failed:', team.logo);
-                  // Hide the image on error and show fallback
                   e.target.style.display = 'none';
                   if (e.target.nextSibling) {
                     e.target.nextSibling.style.display = 'flex';
@@ -170,7 +216,6 @@ export default function TeamProfile() {
               />
             ) : null}
             
-            {/* Fallback logo */}
             <div 
               className={`w-24 h-24 bg-gray-200 rounded-full flex items-center justify-center ${
                 getImageUrl(team.logo) ? 'hidden' : 'flex'
@@ -188,6 +233,7 @@ export default function TeamProfile() {
             </div>
           </div>
 
+          {/* Updated Stats Display */}
           <div className="flex-1">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center">
@@ -195,15 +241,15 @@ export default function TeamProfile() {
                 <div className="text-gray-600 text-sm">Players</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">{team.stats?.wins || 0}</div>
+                <div className="text-2xl font-bold text-green-600">{stats.wins}</div>
                 <div className="text-gray-600 text-sm">Wins</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-yellow-600">{team.stats?.draws || 0}</div>
+                <div className="text-2xl font-bold text-yellow-600">{stats.draws}</div>
                 <div className="text-gray-600 text-sm">Draws</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">{team.stats?.points || 0}</div>
+                <div className="text-2xl font-bold text-purple-600">{stats.points}</div>
                 <div className="text-gray-600 text-sm">Points</div>
               </div>
             </div>
@@ -298,7 +344,7 @@ export default function TeamProfile() {
               </div>
             </div>
 
-            {/* Statistics */}
+            {/* Statistics - Using Calculated Stats */}
             <div className="lg:col-span-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Match Statistics */}
@@ -307,23 +353,23 @@ export default function TeamProfile() {
                   <div className="space-y-3">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Matches Played</span>
-                      <span className="font-semibold">{team.stats?.matchesPlayed || 0}</span>
+                      <span className="font-semibold">{stats.matchesPlayed}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Wins</span>
-                      <span className="font-semibold text-green-600">{team.stats?.wins || 0}</span>
+                      <span className="font-semibold text-green-600">{stats.wins}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Draws</span>
-                      <span className="font-semibold text-yellow-600">{team.stats?.draws || 0}</span>
+                      <span className="font-semibold text-yellow-600">{stats.draws}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Losses</span>
-                      <span className="font-semibold text-red-600">{team.stats?.losses || 0}</span>
+                      <span className="font-semibold text-red-600">{stats.losses}</span>
                     </div>
                     <div className="flex justify-between border-t pt-3">
                       <span className="text-gray-600">Points</span>
-                      <span className="font-bold text-blue-600">{team.stats?.points || 0}</span>
+                      <span className="font-bold text-blue-600">{stats.points}</span>
                     </div>
                   </div>
                 </div>
@@ -334,21 +380,18 @@ export default function TeamProfile() {
                   <div className="space-y-3">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Goals For</span>
-                      <span className="font-semibold text-green-600">{team.stats?.goalsFor || 0}</span>
+                      <span className="font-semibold text-green-600">{stats.goalsFor}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Goals Against</span>
-                      <span className="font-semibold text-red-600">{team.stats?.goalsAgainst || 0}</span>
+                      <span className="font-semibold text-red-600">{stats.goalsAgainst}</span>
                     </div>
                     <div className="flex justify-between border-t pt-3">
                       <span className="text-gray-600">Goal Difference</span>
                       <span className={`font-bold ${
-                        (team.stats?.goalsFor || 0) - (team.stats?.goalsAgainst || 0) >= 0 
-                          ? 'text-green-600' 
-                          : 'text-red-600'
+                        stats.goalDifference >= 0 ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        {((team.stats?.goalsFor || 0) - (team.stats?.goalsAgainst || 0)) >= 0 ? '+' : ''}
-                        {(team.stats?.goalsFor || 0) - (team.stats?.goalsAgainst || 0)}
+                        {stats.goalDifference >= 0 ? '+' : ''}{stats.goalDifference}
                       </span>
                     </div>
                   </div>
@@ -362,6 +405,7 @@ export default function TeamProfile() {
                   {matches
                     .filter(match => match.status === 'completed')
                     .slice(0, 5)
+                    .reverse() // Show most recent first
                     .map((match, index) => {
                       const result = getMatchResult(match);
                       return (
@@ -388,7 +432,22 @@ export default function TeamProfile() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {players.map((player) => (
                 <Link key={player._id} href={`/players/${player._id}`}>
-                  <div className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
+                  <div className="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer relative">
+                    {/* Contract Status Badge */}
+                    <div className="absolute top-2 right-2">
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                        getContractStatusColor(player.contractStatus || 'free_agent')
+                      }`}>
+                        {getContractStatusIcon(player.contractStatus || 'free_agent')}
+                        <span className="ml-1">
+                          {player.contractStatus === 'free_agent' ? 'FA' :
+                           player.contractStatus === 'normal' ? 'N' :
+                           player.contractStatus === 'seasonal' ? 'S' : 
+                           '?'}
+                        </span>
+                      </span>
+                    </div>
+
                     <div className="flex items-center space-x-3">
                       {getImageUrl(player.photo) ? (
                         <Image
@@ -416,16 +475,18 @@ export default function TeamProfile() {
                       
                       <div className="flex-1">
                         <div className="font-medium">{player.name}</div>
-                        <div className="text-sm text-gray-600">{player.position}</div>
+                        <div className="text-sm text-gray-600">{player.position || 'Player'}</div>
                         <div className="text-sm text-gray-500">
-                          {player.jerseyNumber && `#${player.jerseyNumber} • `}
+                          {player.jerseyNumber && `#${player.jerseyNumber}`}
+                          {player.jerseyNumber && player.dateOfBirth && ' • '}
                           {player.dateOfBirth && `Age ${calculateAge(player.dateOfBirth)}`}
                         </div>
                       </div>
                       <div className="text-right">
                         <div className="text-sm font-bold text-green-600">
-                          {player.careerStats?.goals || 0} goals
+                          {player.careerStats?.goals || 0}
                         </div>
+                        <div className="text-xs text-gray-500">goals</div>
                       </div>
                     </div>
                   </div>
@@ -538,7 +599,7 @@ export default function TeamProfile() {
                       </div>
                       {transfer.transferFee > 0 && (
                         <div className="text-sm font-medium text-green-600">
-                          ${transfer.transferFee.toLocaleString()}
+                          MVR {transfer.transferFee.toLocaleString()}
                         </div>
                       )}
                     </div>
