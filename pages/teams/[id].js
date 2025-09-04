@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/teams/[id].js (UPDATED WITH CONTRACT STATUS AND FIXED STATS)
+// FILE: pages/teams/[id].js (UPDATED WITH DEBUGGING AND BETTER FILTERING)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
@@ -17,7 +17,8 @@ import {
   TrendingUp,
   TrendingDown,
   FileText,
-  Clock
+  Clock,
+  AlertCircle
 } from 'lucide-react';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { format } from 'date-fns';
@@ -47,6 +48,7 @@ export default function TeamProfile() {
   const [transfers, setTransfers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
+  const [debugInfo, setDebugInfo] = useState(null); // NEW: Debug information
 
   useEffect(() => {
     if (id) {
@@ -72,11 +74,36 @@ export default function TeamProfile() {
         setPlayers(Array.isArray(playersData) ? playersData : []);
       }
 
-      // Fetch team matches
-      const matchesResponse = await fetch(`/api/public/matches?teamId=${id}&limit=10`);
+      // Fetch ALL matches for this team (for debugging)
+      const matchesResponse = await fetch(`/api/public/matches?teamId=${id}&limit=100`);
       if (matchesResponse.ok) {
         const matchesData = await matchesResponse.json();
-        setMatches(Array.isArray(matchesData) ? matchesData : []);
+        const validMatches = Array.isArray(matchesData) ? matchesData : [];
+        setMatches(validMatches);
+        
+        // NEW: Create debug information
+        const debugData = {
+          totalMatches: validMatches.length,
+          matchesByStatus: {
+            completed: validMatches.filter(m => m.status === 'completed').length,
+            scheduled: validMatches.filter(m => m.status === 'scheduled').length,
+            live: validMatches.filter(m => m.status === 'live').length,
+            other: validMatches.filter(m => !['completed', 'scheduled', 'live'].includes(m.status)).length
+          },
+          matchDetails: validMatches.map(match => ({
+            id: match._id,
+            status: match.status,
+            date: match.matchDate,
+            homeTeam: match.homeTeam?.name,
+            awayTeam: match.awayTeam?.name,
+            homeScore: match.homeScore,
+            awayScore: match.awayScore,
+            season: match.season?.name
+          }))
+        };
+        setDebugInfo(debugData);
+        
+        console.log('🔍 TEAM MATCHES DEBUG:', debugData);
       }
 
       // Fetch recent transfers
@@ -93,18 +120,61 @@ export default function TeamProfile() {
     }
   };
 
-  // Calculate real-time team statistics from matches
+  // UPDATED: More strict filtering for team statistics
   const calculateTeamStats = () => {
-    const completedMatches = matches.filter(match => match.status === 'completed');
+    if (!team || !matches || matches.length === 0) {
+      return {
+        matchesPlayed: 0,
+        wins: 0,
+        draws: 0,
+        losses: 0,
+        points: 0,
+        goalsFor: 0,
+        goalsAgainst: 0,
+        goalDifference: 0
+      };
+    }
+
+    // STRICT FILTERING: Only count completed matches with valid scores
+    const validMatches = matches.filter(match => {
+      const isValidMatch = (
+        match.status === 'completed' && 
+        (match.homeTeam?._id === team._id || match.awayTeam?._id === team._id) &&
+        match.homeScore !== null && 
+        match.homeScore !== undefined &&
+        match.awayScore !== null && 
+        match.awayScore !== undefined &&
+        match.homeTeam && 
+        match.awayTeam &&
+        match.season // Must have a season
+      );
+      
+      if (!isValidMatch && (match.homeTeam?._id === team._id || match.awayTeam?._id === team._id)) {
+        console.warn('🚫 Excluding invalid match:', {
+          id: match._id,
+          status: match.status,
+          homeScore: match.homeScore,
+          awayScore: match.awayScore,
+          homeTeam: match.homeTeam?.name,
+          awayTeam: match.awayTeam?.name,
+          reason: 'Invalid match data'
+        });
+      }
+      
+      return isValidMatch;
+    });
+
+    console.log('✅ Valid matches for stats calculation:', validMatches.length, 'out of', matches.length);
+
     let wins = 0, draws = 0, losses = 0, goalsFor = 0, goalsAgainst = 0;
 
-    completedMatches.forEach(match => {
-      const isHome = match.homeTeam?._id === team._id;
+    validMatches.forEach(match => {
+      const isHome = match.homeTeam._id === team._id;
       const teamScore = isHome ? match.homeScore : match.awayScore;
       const opponentScore = isHome ? match.awayScore : match.homeScore;
 
-      goalsFor += teamScore || 0;
-      goalsAgainst += opponentScore || 0;
+      goalsFor += teamScore;
+      goalsAgainst += opponentScore;
 
       if (teamScore > opponentScore) {
         wins++;
@@ -116,9 +186,9 @@ export default function TeamProfile() {
     });
 
     const points = (wins * 3) + (draws * 1);
-    const matchesPlayed = completedMatches.length;
+    const matchesPlayed = validMatches.length;
 
-    return {
+    const stats = {
       matchesPlayed,
       wins,
       draws,
@@ -128,6 +198,9 @@ export default function TeamProfile() {
       goalsAgainst,
       goalDifference: goalsFor - goalsAgainst
     };
+
+    console.log('📊 Calculated team stats:', stats);
+    return stats;
   };
 
   const getMatchResult = (match) => {
@@ -195,6 +268,38 @@ export default function TeamProfile() {
 
   return (
     <div className="space-y-8">
+      {/* NEW: Debug Panel (only show if there's a mismatch) */}
+      {debugInfo && debugInfo.totalMatches !== stats.matchesPlayed && (
+        <div className="card bg-yellow-50 border-yellow-200">
+          <div className="flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 text-yellow-600 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-yellow-800">Match Data Debug Information</h3>
+              <p className="text-yellow-700 text-sm mb-2">
+                Found {debugInfo.totalMatches} total matches, but only {stats.matchesPlayed} valid completed matches.
+              </p>
+              <div className="text-xs text-yellow-600 space-y-1">
+                <p><strong>Completed:</strong> {debugInfo.matchesByStatus.completed}</p>
+                <p><strong>Scheduled:</strong> {debugInfo.matchesByStatus.scheduled}</p>
+                <p><strong>Live:</strong> {debugInfo.matchesByStatus.live}</p>
+                <p><strong>Other/Invalid:</strong> {debugInfo.matchesByStatus.other}</p>
+              </div>
+              <details className="mt-2">
+                <summary className="text-xs text-yellow-600 cursor-pointer">Show all matches</summary>
+                <div className="mt-2 text-xs text-yellow-600 max-h-32 overflow-y-auto">
+                  {debugInfo.matchDetails.map((match, idx) => (
+                    <div key={idx} className="border-b border-yellow-200 py-1">
+                      {match.homeTeam} vs {match.awayTeam} | Status: {match.status} | 
+                      Score: {match.homeScore}-{match.awayScore} | Season: {match.season || 'None'}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Team Header */}
       <div className="card">
         <div className="flex flex-col md:flex-row items-start md:items-center space-y-4 md:space-y-0 md:space-x-8">
@@ -252,6 +357,12 @@ export default function TeamProfile() {
                 <div className="text-2xl font-bold text-purple-600">{stats.points}</div>
                 <div className="text-gray-600 text-sm">Points</div>
               </div>
+            </div>
+            {/* Show matches played count */}
+            <div className="text-center mt-2">
+              <span className="text-sm text-gray-500">
+                {stats.matchesPlayed} matches played
+              </span>
             </div>
           </div>
         </div>
@@ -405,7 +516,7 @@ export default function TeamProfile() {
                   {matches
                     .filter(match => match.status === 'completed')
                     .slice(0, 5)
-                    .reverse() // Show most recent first
+                    .reverse()
                     .map((match, index) => {
                       const result = getMatchResult(match);
                       return (
@@ -505,7 +616,7 @@ export default function TeamProfile() {
 
         {activeTab === 'matches' && (
           <div className="card">
-            <h3 className="text-lg font-semibold mb-6">Recent Matches</h3>
+            <h3 className="text-lg font-semibold mb-6">Matches ({matches.length} total, {matches.filter(m => m.status === 'completed').length} completed)</h3>
             <div className="space-y-4">
               {matches.map((match) => {
                 const isHome = match.homeTeam?._id === team._id;
@@ -526,6 +637,12 @@ export default function TeamProfile() {
                           <div className="flex items-center text-sm text-gray-500">
                             <MapPin className="w-3 h-3 mr-1" />
                             {match.venue}
+                          </div>
+                        )}
+                        {/* NEW: Show season info */}
+                        {match.season && (
+                          <div className="text-xs text-gray-400">
+                            {match.season.name}
                           </div>
                         )}
                       </div>
@@ -551,6 +668,10 @@ export default function TeamProfile() {
                             {format(new Date(match.matchDate), 'HH:mm')}
                           </span>
                         )}
+                        {/* NEW: Show status for debugging */}
+                        <span className="text-xs text-gray-400">
+                          ({match.status})
+                        </span>
                       </div>
                     </div>
                   </div>
