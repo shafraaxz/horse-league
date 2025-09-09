@@ -1,31 +1,18 @@
 // ===========================================
-// FILE: pages/players/[id].js (COMPLETE PLAYER PROFILE WITH CONTRACT INFO)
+// FILE: pages/players/[id].js (ENHANCED PLAYER PROFILE)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Image from 'next/image';
 import Link from 'next/link';
 import { 
-  User, 
-  Trophy, 
-  Target, 
-  Calendar, 
-  MapPin, 
-  Mail, 
-  Phone, 
-  Users,
-  TrendingUp,
-  Award,
-  Activity,
-  Clock,
-  Heart,
-  Shield,
-  ChevronRight,
-  FileText,
-  AlertCircle
+  User, Trophy, Target, Calendar, MapPin, Mail, Phone, Users,
+  TrendingUp, Award, Activity, Clock, Heart, Shield, ChevronRight,
+  FileText, AlertCircle, ArrowLeft, Share2, Star, BarChart3,
+  Zap, Crown, CheckCircle, XCircle, Eye, Download
 } from 'lucide-react';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import { format } from 'date-fns';
+import { format, isToday, isTomorrow, isYesterday } from 'date-fns';
 import { calculateAge } from '../../lib/utils';
 
 // Helper function to extract image URL from various formats
@@ -51,6 +38,7 @@ export default function PlayerProfile() {
   const [playerTransfers, setPlayerTransfers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
+  const [teamPlayers, setTeamPlayers] = useState([]); // For team comparison
 
   useEffect(() => {
     if (id) {
@@ -62,48 +50,58 @@ export default function PlayerProfile() {
     try {
       setIsLoading(true);
       
-      // Fetch player details from public API (no private data)
-      const playerResponse = await fetch(`/api/public/players?search=${id}`);
-      if (playerResponse.ok) {
-        const playersData = await playerResponse.json();
-        const foundPlayer = Array.isArray(playersData) ? 
+      // Use Promise.all for parallel requests
+      const requests = [
+        // Try individual player API first
+        fetch(`/api/players/${id}`).catch(() => null),
+        // Fallback to search in public players
+        fetch(`/api/public/players?search=${id}`).catch(() => null),
+        // Get player matches
+        fetch(`/api/public/matches?playerId=${id}&limit=20`).catch(() => null),
+        // Get player transfers
+        fetch(`/api/public/transfers?playerId=${id}&limit=10`).catch(() => null)
+      ];
+
+      const [individualResponse, searchResponse, matchesResponse, transfersResponse] = await Promise.all(requests);
+
+      // Process player data
+      let foundPlayer = null;
+      
+      if (individualResponse && individualResponse.ok) {
+        foundPlayer = await individualResponse.json();
+      } else if (searchResponse && searchResponse.ok) {
+        const playersData = await searchResponse.json();
+        foundPlayer = Array.isArray(playersData) ? 
           playersData.find(p => p._id === id) : null;
+      }
+
+      if (foundPlayer) {
+        setPlayer(foundPlayer);
         
-        if (foundPlayer) {
-          setPlayer(foundPlayer);
-          console.log('Player profile data:', foundPlayer);
-        } else {
-          // Try alternative API endpoint
-          const altResponse = await fetch(`/api/players/${id}`);
-          if (altResponse.ok) {
-            const playerData = await altResponse.json();
-            setPlayer(playerData);
+        // Fetch team players for comparison if player has a team
+        if (foundPlayer.currentTeam?._id) {
+          try {
+            const teamPlayersResponse = await fetch(`/api/public/players?teamId=${foundPlayer.currentTeam._id}`);
+            if (teamPlayersResponse.ok) {
+              const teamPlayersData = await teamPlayersResponse.json();
+              setTeamPlayers(Array.isArray(teamPlayersData) ? teamPlayersData : []);
+            }
+          } catch (error) {
+            console.log('Team players not available');
           }
         }
       }
 
-      // Fetch player's matches (if available)
-      try {
-        const matchesResponse = await fetch(`/api/public/matches?playerId=${id}&limit=10`);
-        if (matchesResponse.ok) {
-          const matchesData = await matchesResponse.json();
-          setPlayerMatches(Array.isArray(matchesData) ? matchesData : []);
-        }
-      } catch (matchError) {
-        console.log('Matches not available for player');
-        setPlayerMatches([]);
+      // Process matches data
+      if (matchesResponse && matchesResponse.ok) {
+        const matchesData = await matchesResponse.json();
+        setPlayerMatches(Array.isArray(matchesData) ? matchesData : []);
       }
 
-      // Fetch player's transfer history
-      try {
-        const transfersResponse = await fetch(`/api/public/transfers?playerId=${id}&limit=10`);
-        if (transfersResponse.ok) {
-          const transfersData = await transfersResponse.json();
-          setPlayerTransfers(Array.isArray(transfersData) ? transfersData : []);
-        }
-      } catch (transferError) {
-        console.log('Transfer history not available');
-        setPlayerTransfers([]);
+      // Process transfers data
+      if (transfersResponse && transfersResponse.ok) {
+        const transfersData = await transfersResponse.json();
+        setPlayerTransfers(Array.isArray(transfersData) ? transfersData : []);
       }
 
     } catch (error) {
@@ -113,6 +111,7 @@ export default function PlayerProfile() {
     }
   };
 
+  // Enhanced helper functions
   const getPositionIcon = (position) => {
     if (position === 'Goalkeeper') return <Shield className="w-5 h-5 text-blue-600" />;
     return <Users className="w-5 h-5 text-green-600" />;
@@ -127,13 +126,12 @@ export default function PlayerProfile() {
     }
   };
 
-  // Contract status helpers
   const getContractStatusColor = (contractStatus) => {
     switch (contractStatus) {
-      case 'normal': return 'bg-blue-100 text-blue-800';
-      case 'seasonal': return 'bg-purple-100 text-purple-800';
-      case 'free_agent': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'normal': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'seasonal': return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'free_agent': return 'bg-green-100 text-green-800 border-green-200';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
@@ -146,351 +144,449 @@ export default function PlayerProfile() {
     }
   };
 
+  const getPerformanceRating = () => {
+    if (!player?.careerStats) return { rating: 'No Data', color: 'text-gray-500', icon: AlertCircle };
+    
+    const goals = player.careerStats.goals || 0;
+    const assists = player.careerStats.assists || 0;
+    const matches = player.careerStats.appearances || 1;
+    
+    const goalsPerMatch = goals / matches;
+    const assistsPerMatch = assists / matches;
+    const contribution = goalsPerMatch + assistsPerMatch;
+    
+    if (contribution >= 1.0) return { rating: 'World Class', color: 'text-purple-600', icon: Crown };
+    if (contribution >= 0.7) return { rating: 'Excellent', color: 'text-green-600', icon: Star };
+    if (contribution >= 0.4) return { rating: 'Good', color: 'text-blue-600', icon: TrendingUp };
+    if (contribution >= 0.2) return { rating: 'Average', color: 'text-yellow-600', icon: Activity };
+    return { rating: 'Developing', color: 'text-gray-600', icon: Zap };
+  };
+
+  const getTeamRanking = () => {
+    if (!teamPlayers.length || !player) return null;
+    
+    const sortedByGoals = [...teamPlayers].sort((a, b) => 
+      (b.careerStats?.goals || 0) - (a.careerStats?.goals || 0)
+    );
+    
+    const goalsRank = sortedByGoals.findIndex(p => p._id === player._id) + 1;
+    
+    const sortedByAssists = [...teamPlayers].sort((a, b) => 
+      (b.careerStats?.assists || 0) - (a.careerStats?.assists || 0)
+    );
+    
+    const assistsRank = sortedByAssists.findIndex(p => p._id === player._id) + 1;
+    
+    return { goalsRank, assistsRank, totalPlayers: teamPlayers.length };
+  };
+
+  const formatMatchDate = (dateString) => {
+    const date = new Date(dateString);
+    if (isToday(date)) return 'Today';
+    if (isTomorrow(date)) return 'Tomorrow';
+    if (isYesterday(date)) return 'Yesterday';
+    return format(date, 'MMM dd');
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
-        <LoadingSpinner size="lg" />
+        <div className="text-center">
+          <LoadingSpinner size="lg" />
+          <p className="text-gray-600 mt-4 text-lg">Loading player profile...</p>
+        </div>
       </div>
     );
   }
 
   if (!player) {
     return (
-      <div className="text-center py-12">
+      <div className="text-center py-16">
+        <User className="w-16 h-16 text-gray-400 mx-auto mb-4" />
         <h2 className="text-2xl font-bold text-gray-900 mb-4">Player Not Found</h2>
-        <p className="text-gray-600 mb-4">The player you're looking for doesn't exist.</p>
-        <Link href="/players" className="btn btn-primary">
+        <p className="text-gray-600 mb-6">The player you're looking for doesn't exist.</p>
+        <Link href="/players" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
           Back to Players
         </Link>
       </div>
     );
   }
 
+  const performanceRating = getPerformanceRating();
+  const teamRanking = getTeamRanking();
+
   return (
     <div className="space-y-8">
-      {/* Player Header */}
-      <div className="card">
-        <div className="flex flex-col md:flex-row items-start md:items-center space-y-6 md:space-y-0 md:space-x-8">
-          <div className="flex items-center space-x-6">
-            {getImageUrl(player.photo) ? (
-              <Image
-                src={getImageUrl(player.photo)}
-                alt={player.name}
-                width={120}
-                height={120}
-                className="rounded-full object-cover border-4 border-gray-200"
-                onError={(e) => {
-                  console.error('Player profile photo failed:', player.photo);
-                  e.target.style.display = 'none';
-                  if (e.target.nextSibling) {
-                    e.target.nextSibling.style.display = 'flex';
-                  }
-                }}
-              />
-            ) : null}
-            
-            <div 
-              className={`w-30 h-30 bg-gray-200 rounded-full flex items-center justify-center border-4 border-gray-200 ${
-                getImageUrl(player.photo) ? 'hidden' : 'flex'
-              }`}
-            >
-              <User className="w-16 h-16 text-gray-400" />
-            </div>
+      {/* Enhanced Header with Breadcrumb */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-4">
+          <Link 
+            href="/players" 
+            className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4 mr-1" />
+            Players
+          </Link>
+          <ChevronRight className="w-4 h-4 text-gray-400" />
+          <span className="text-gray-900 font-medium">{player.name}</span>
+        </div>
+        
+        <div className="flex items-center space-x-3">
+          <button className="flex items-center bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition-colors">
+            <Share2 className="w-4 h-4 mr-2" />
+            Share
+          </button>
+          <button className="flex items-center bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-lg transition-colors">
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </button>
+        </div>
+      </div>
 
-            <div>
-              <div className="flex items-center space-x-3 mb-2">
-                <h1 className="text-3xl font-bold text-gray-900">{player.name}</h1>
+      {/* Enhanced Player Header */}
+      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-8 text-white">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center space-y-6 lg:space-y-0 lg:space-x-8">
+            <div className="flex items-center space-x-6">
+              <div className="relative">
+                {getImageUrl(player.photo) ? (
+                  <Image
+                    src={getImageUrl(player.photo)}
+                    alt={player.name}
+                    width={140}
+                    height={140}
+                    className="rounded-full object-cover border-4 border-white/20"
+                  />
+                ) : (
+                  <div className="w-35 h-35 bg-white/20 rounded-full flex items-center justify-center border-4 border-white/20">
+                    <User className="w-20 h-20 text-white/70" />
+                  </div>
+                )}
+                
+                {/* Jersey Number Badge */}
                 {player.jerseyNumber && (
-                  <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-bold text-lg">
+                  <div className="absolute -bottom-2 -right-2 bg-white text-blue-600 w-12 h-12 rounded-full flex items-center justify-center text-xl font-bold shadow-lg">
                     #{player.jerseyNumber}
-                  </span>
-                )}
-              </div>
-              
-              <div className="flex items-center space-x-4 mb-3">
-                {player.position && (
-                  <div className="flex items-center space-x-2">
-                    {getPositionIcon(player.position)}
-                    <span className="font-medium">{player.position}</span>
                   </div>
                 )}
                 
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(player.status)}`}>
-                  {player.status?.charAt(0).toUpperCase() + player.status?.slice(1)}
-                </span>
+                {/* Performance Rating Badge */}
+                <div className={`absolute -top-2 -left-2 px-3 py-1 rounded-full bg-white text-xs font-bold ${performanceRating.color}`}>
+                  <performanceRating.icon className="w-3 h-3 inline mr-1" />
+                  {performanceRating.rating}
+                </div>
+              </div>
 
-                {/* Contract Status Display */}
-                {player.contractStatus && (
-                  <div className="flex items-center space-x-1">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-1 ${
-                      getContractStatusColor(player.contractStatus)
-                    }`}>
-                      {getContractStatusIcon(player.contractStatus)}
-                      <span>
-                        {player.contractStatus === 'free_agent' ? 'Free Agent' :
-                         player.contractStatus === 'normal' ? 'Normal Contract' :
-                         player.contractStatus === 'seasonal' ? 'Seasonal Contract' : 
-                         'Unknown'}
-                      </span>
+              <div>
+                <h1 className="text-4xl font-bold mb-2">{player.name}</h1>
+                <div className="flex items-center space-x-4 text-white/80 mb-3">
+                  {player.position && (
+                    <div className="flex items-center space-x-2">
+                      {getPositionIcon(player.position)}
+                      <span>{player.position}</span>
+                    </div>
+                  )}
+                  
+                  {player.dateOfBirth && (
+                    <span className="flex items-center space-x-1">
+                      <Calendar className="w-4 h-4" />
+                      <span>Age {calculateAge(player.dateOfBirth)}</span>
                     </span>
-                  </div>
-                )}
-              </div>
+                  )}
+                  
+                  {player.nationality && (
+                    <span className="flex items-center space-x-1">
+                      <MapPin className="w-4 h-4" />
+                      <span>{player.nationality}</span>
+                    </span>
+                  )}
+                </div>
 
-              <div className="flex items-center space-x-6 text-gray-600">
-                {player.dateOfBirth && (
-                  <div className="flex items-center space-x-1">
-                    <Calendar className="w-4 h-4" />
-                    <span>Age {calculateAge(player.dateOfBirth)}</span>
-                  </div>
-                )}
-                
-                {player.nationality && (
-                  <div className="flex items-center space-x-1">
-                    <MapPin className="w-4 h-4" />
-                    <span>{player.nationality}</span>
-                  </div>
-                )}
-                
-                <div className="flex items-center space-x-1">
-                  <Users className="w-4 h-4" />
-                  <span>{player.currentTeam?.name || 'Free Agent'}</span>
+                {/* Contract Status */}
+                <div className="flex items-center space-x-3">
+                  <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                    getContractStatusColor(player.contractStatus)
+                  }`}>
+                    {getContractStatusIcon(player.contractStatus)}
+                    <span className="ml-1">
+                      {player.contractStatus === 'free_agent' ? 'Free Agent' :
+                       player.contractStatus === 'normal' ? 'Normal Contract' :
+                       player.contractStatus === 'seasonal' ? 'Seasonal Contract' : 
+                       'Unknown Status'}
+                    </span>
+                  </span>
+                  
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(player.status)}`}>
+                    {player.status?.charAt(0).toUpperCase() + player.status?.slice(1) || 'Active'}
+                  </span>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Quick Stats */}
-          <div className="flex-1">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {/* Quick Stats */}
+            <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">{player.stats?.goals || 0}</div>
-                <div className="text-gray-600 text-sm">Goals</div>
+                <div className="text-3xl font-bold">{player.careerStats?.goals || 0}</div>
+                <div className="text-white/70 text-sm">Goals</div>
+                {teamRanking && (
+                  <div className="text-xs text-white/60">#{teamRanking.goalsRank} in team</div>
+                )}
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{player.stats?.assists || 0}</div>
-                <div className="text-gray-600 text-sm">Assists</div>
+                <div className="text-3xl font-bold">{player.careerStats?.assists || 0}</div>
+                <div className="text-white/70 text-sm">Assists</div>
+                {teamRanking && (
+                  <div className="text-xs text-white/60">#{teamRanking.assistsRank} in team</div>
+                )}
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">{player.stats?.matchesPlayed || 0}</div>
-                <div className="text-gray-600 text-sm">Matches</div>
+                <div className="text-3xl font-bold">{player.careerStats?.appearances || 0}</div>
+                <div className="text-white/70 text-sm">Matches</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-yellow-600">{(player.stats?.yellowCards || 0) + (player.stats?.redCards || 0)}</div>
-                <div className="text-gray-600 text-sm">Cards</div>
+                <div className="text-3xl font-bold">
+                  {((player.careerStats?.goals || 0) + (player.careerStats?.assists || 0))}
+                </div>
+                <div className="text-white/70 text-sm">Contributions</div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Current Team Section */}
+        {player.currentTeam && (
+          <div className="p-6 border-b border-gray-200 bg-gray-50">
+            <h3 className="text-lg font-semibold mb-3">Current Team</h3>
+            <Link href={`/teams/${player.currentTeam._id}`}>
+              <div className="flex items-center space-x-4 p-4 bg-white rounded-lg hover:shadow-md transition-all cursor-pointer group">
+                {getImageUrl(player.currentTeam.logo) && (
+                  <Image
+                    src={getImageUrl(player.currentTeam.logo)}
+                    alt={player.currentTeam.name}
+                    width={60}
+                    height={60}
+                    className="rounded-full object-cover"
+                  />
+                )}
+                <div className="flex-1">
+                  <div className="font-bold text-xl text-gray-900 group-hover:text-blue-600 transition-colors">
+                    {player.currentTeam.name}
+                  </div>
+                  <div className="text-gray-600">
+                    {player.jerseyNumber && `Jersey #${player.jerseyNumber} • `}
+                    {player.currentTeam.season?.name || 'Current Season'}
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors" />
+              </div>
+            </Link>
+          </div>
+        )}
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="border-b">
-        <nav className="-mb-px flex space-x-8">
+      {/* Enhanced Navigation Tabs */}
+      <div className="bg-white rounded-lg shadow-sm border">
+        <nav className="flex space-x-0">
           {[
             { id: 'overview', name: 'Overview', icon: User },
             { id: 'contract', name: 'Contract', icon: FileText },
-            { id: 'stats', name: 'Statistics', icon: TrendingUp },
-            { id: 'matches', name: 'Match History', icon: Calendar },
-            { id: 'transfers', name: 'Transfer History', icon: Activity },
+            { id: 'stats', name: 'Statistics', icon: BarChart3 },
+            { id: 'matches', name: `Matches (${playerMatches.length})`, icon: Calendar },
+            { id: 'transfers', name: `Transfers (${playerTransfers.length})`, icon: Activity },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center space-x-2 py-2 px-1 border-b-2 font-medium text-sm ${
+              className={`flex-1 flex items-center justify-center py-4 px-6 font-medium text-sm transition-colors border-b-2 ${
                 activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-blue-500 text-blue-600 bg-blue-50'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
               }`}
             >
-              <tab.icon className="w-4 h-4" />
-              <span>{tab.name}</span>
+              <tab.icon className="w-4 h-4 mr-2" />
+              {tab.name}
             </button>
           ))}
         </nav>
       </div>
 
-      {/* Tab Content */}
+      {/* Enhanced Tab Content */}
       <div>
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Player Information */}
-            <div className="lg:col-span-1">
-              <div className="card">
-                <h3 className="text-lg font-semibold mb-4">Player Information</h3>
+            <div className="lg:col-span-1 space-y-6">
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <h3 className="text-xl font-bold mb-4 flex items-center">
+                  <User className="w-5 h-5 mr-2 text-blue-600" />
+                  Player Information
+                </h3>
                 <div className="space-y-4">
                   {player.dateOfBirth && (
-                    <div>
-                      <div className="text-sm text-gray-600">Date of Birth</div>
-                      <div className="font-medium">
-                        {format(new Date(player.dateOfBirth), 'MMM dd, yyyy')} 
-                        <span className="text-gray-500 ml-2">({calculateAge(player.dateOfBirth)} years)</span>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="text-gray-600">Date of Birth</span>
+                      <div className="text-right">
+                        <div className="font-medium">
+                          {format(new Date(player.dateOfBirth), 'MMM dd, yyyy')}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {calculateAge(player.dateOfBirth)} years old
+                        </div>
                       </div>
                     </div>
                   )}
                   
                   {player.nationality && (
-                    <div>
-                      <div className="text-sm text-gray-600">Nationality</div>
-                      <div className="font-medium">{player.nationality}</div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="text-gray-600">Nationality</span>
+                      <span className="font-medium">{player.nationality}</span>
                     </div>
                   )}
                   
                   {player.height && (
-                    <div>
-                      <div className="text-sm text-gray-600">Height</div>
-                      <div className="font-medium">{player.height} cm</div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="text-gray-600">Height</span>
+                      <span className="font-medium">{player.height} cm</span>
                     </div>
                   )}
                   
                   {player.weight && (
-                    <div>
-                      <div className="text-sm text-gray-600">Weight</div>
-                      <div className="font-medium">{player.weight} kg</div>
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="text-gray-600">Weight</span>
+                      <span className="font-medium">{player.weight} kg</span>
                     </div>
                   )}
                   
-                  <div>
-                    <div className="text-sm text-gray-600">Status</div>
+                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                    <span className="text-gray-600">Status</span>
                     <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(player.status)}`}>
-                      {player.status?.charAt(0).toUpperCase() + player.status?.slice(1)}
+                      {player.status?.charAt(0).toUpperCase() + player.status?.slice(1) || 'Active'}
                     </span>
                   </div>
 
-                  {/* Contract Status Overview */}
-                  <div>
-                    <div className="text-sm text-gray-600">Contract Status</div>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                        getContractStatusColor(player.contractStatus)
-                      }`}>
-                        {getContractStatusIcon(player.contractStatus)}
-                        <span className="ml-1">
-                          {player.contractStatus === 'free_agent' ? 'Free Agent' :
-                           player.contractStatus === 'normal' ? 'Normal' :
-                           player.contractStatus === 'seasonal' ? 'Seasonal' : 
-                           'Unknown'}
-                        </span>
+                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                    <span className="text-gray-600">Performance</span>
+                    <div className="flex items-center space-x-2">
+                      <performanceRating.icon className={`w-4 h-4 ${performanceRating.color}`} />
+                      <span className={`font-medium ${performanceRating.color}`}>
+                        {performanceRating.rating}
                       </span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Current Team */}
-              {player.currentTeam && (
-                <div className="card mt-6">
-                  <h3 className="text-lg font-semibold mb-4">Current Team</h3>
-                  <Link href={`/teams/${player.currentTeam._id}`}>
-                    <div className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer">
-                      {getImageUrl(player.currentTeam.logo) && (
-                        <Image
-                          src={getImageUrl(player.currentTeam.logo)}
-                          alt={player.currentTeam.name}
-                          width={40}
-                          height={40}
-                          className="rounded-full object-cover"
-                        />
-                      )}
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900">{player.currentTeam.name}</div>
-                        {player.jerseyNumber && (
-                          <div className="text-sm text-gray-600">Jersey #{player.jerseyNumber}</div>
-                        )}
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-gray-400" />
+              {/* Team Comparison */}
+              {teamRanking && (
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                  <h3 className="text-xl font-bold mb-4 flex items-center">
+                    <Trophy className="w-5 h-5 mr-2 text-yellow-600" />
+                    Team Rankings
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
+                      <span className="text-gray-700">Goals Ranking</span>
+                      <span className="font-bold text-yellow-600">
+                        #{teamRanking.goalsRank} of {teamRanking.totalPlayers}
+                      </span>
                     </div>
-                  </Link>
+                    <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                      <span className="text-gray-700">Assists Ranking</span>
+                      <span className="font-bold text-blue-600">
+                        #{teamRanking.assistsRank} of {teamRanking.totalPlayers}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
-            {/* Career Highlights */}
-            <div className="lg:col-span-2">
+            {/* Performance Metrics */}
+            <div className="lg:col-span-2 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Goals & Assists */}
-                <div className="card">
-                  <h3 className="text-lg font-semibold mb-4 flex items-center">
+                {/* Attacking Stats */}
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                  <h3 className="text-xl font-bold mb-4 flex items-center">
                     <Target className="w-5 h-5 mr-2 text-green-600" />
                     Attacking Stats
                   </h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Goals</span>
-                      <span className="font-bold text-green-600 text-lg">{player.stats?.goals || 0}</span>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                      <span className="text-gray-700">Goals</span>
+                      <span className="font-bold text-green-600 text-xl">{player.careerStats?.goals || 0}</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Assists</span>
-                      <span className="font-bold text-blue-600 text-lg">{player.stats?.assists || 0}</span>
+                    <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                      <span className="text-gray-700">Assists</span>
+                      <span className="font-bold text-blue-600 text-xl">{player.careerStats?.assists || 0}</span>
                     </div>
-                    <div className="flex justify-between items-center border-t pt-3">
-                      <span className="text-gray-600">Goal Contributions</span>
-                      <span className="font-bold text-purple-600 text-lg">
-                        {(player.stats?.goals || 0) + (player.stats?.assists || 0)}
+                    <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
+                      <span className="text-gray-700">Contributions</span>
+                      <span className="font-bold text-purple-600 text-xl">
+                        {(player.careerStats?.goals || 0) + (player.careerStats?.assists || 0)}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {/* Discipline */}
-                <div className="card">
-                  <h3 className="text-lg font-semibold mb-4 flex items-center">
+                {/* Discipline & Performance */}
+                <div className="bg-white rounded-xl shadow-lg p-6">
+                  <h3 className="text-xl font-bold mb-4 flex items-center">
                     <Award className="w-5 h-5 mr-2 text-yellow-600" />
                     Discipline
                   </h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Yellow Cards</span>
-                      <span className="font-bold text-yellow-600 text-lg">{player.stats?.yellowCards || 0}</span>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
+                      <span className="text-gray-700">Yellow Cards</span>
+                      <span className="font-bold text-yellow-600 text-xl">{player.careerStats?.yellowCards || 0}</span>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-600">Red Cards</span>
-                      <span className="font-bold text-red-600 text-lg">{player.stats?.redCards || 0}</span>
+                    <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
+                      <span className="text-gray-700">Red Cards</span>
+                      <span className="font-bold text-red-600 text-xl">{player.careerStats?.redCards || 0}</span>
                     </div>
-                    <div className="flex justify-between items-center border-t pt-3">
-                      <span className="text-gray-600">Total Cards</span>
-                      <span className="font-bold text-gray-900 text-lg">
-                        {(player.stats?.yellowCards || 0) + (player.stats?.redCards || 0)}
+                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="text-gray-700">Fair Play Score</span>
+                      <span className="font-bold text-gray-600">
+                        {((player.careerStats?.appearances || 1) - (player.careerStats?.yellowCards || 0) - ((player.careerStats?.redCards || 0) * 2)).toFixed(1)}
                       </span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Performance Metrics */}
-              <div className="card mt-6">
-                <h3 className="text-lg font-semibold mb-4 flex items-center">
-                  <Activity className="w-5 h-5 mr-2 text-purple-600" />
+              {/* Advanced Metrics */}
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <h3 className="text-xl font-bold mb-4 flex items-center">
+                  <BarChart3 className="w-5 h-5 mr-2 text-purple-600" />
                   Performance Metrics
                 </h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <div className="text-lg font-bold text-blue-600">{player.stats?.matchesPlayed || 0}</div>
-                    <div className="text-sm text-gray-600">Matches</div>
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <div className="text-2xl font-bold text-blue-600">{player.careerStats?.appearances || 0}</div>
+                    <div className="text-sm text-blue-700">Total Matches</div>
                   </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <div className="text-lg font-bold text-green-600">
-                      {player.stats?.matchesPlayed > 0 ? 
-                        ((player.stats?.goals || 0) / player.stats.matchesPlayed).toFixed(2) : 
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <div className="text-2xl font-bold text-green-600">
+                      {player.careerStats?.appearances > 0 ? 
+                        ((player.careerStats?.goals || 0) / player.careerStats.appearances).toFixed(2) : 
                         '0.00'
                       }
                     </div>
-                    <div className="text-sm text-gray-600">Goals/Match</div>
+                    <div className="text-sm text-green-700">Goals/Match</div>
                   </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <div className="text-lg font-bold text-purple-600">
-                      {player.stats?.minutesPlayed || 0}
+                  <div className="text-center p-4 bg-purple-50 rounded-lg">
+                    <div className="text-2xl font-bold text-purple-600">
+                      {player.careerStats?.minutesPlayed || 0}
                     </div>
-                    <div className="text-sm text-gray-600">Minutes</div>
+                    <div className="text-sm text-purple-700">Minutes</div>
                   </div>
-                  <div className="text-center p-3 bg-gray-50 rounded-lg">
-                    <div className="text-lg font-bold text-yellow-600">
-                      {player.stats?.matchesPlayed > 0 ? 
-                        Math.round((player.stats?.minutesPlayed || 0) / player.stats.matchesPlayed) : 
+                  <div className="text-center p-4 bg-yellow-50 rounded-lg">
+                    <div className="text-2xl font-bold text-yellow-600">
+                      {player.careerStats?.appearances > 0 ? 
+                        Math.round((player.careerStats?.minutesPlayed || 0) / player.careerStats.appearances) : 
                         0
                       }
                     </div>
-                    <div className="text-sm text-gray-600">Avg Min/Match</div>
+                    <div className="text-sm text-yellow-700">Avg Minutes</div>
                   </div>
                 </div>
               </div>
@@ -498,86 +594,108 @@ export default function PlayerProfile() {
           </div>
         )}
 
-        {/* Contract Tab */}
+        {/* Enhanced Contract Tab */}
         {activeTab === 'contract' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Current Contract */}
-            <div className="card">
-              <h3 className="text-lg font-semibold mb-4 flex items-center">
+            {/* Contract Status */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-xl font-bold mb-6 flex items-center">
                 <FileText className="w-5 h-5 mr-2 text-blue-600" />
-                Current Contract Status
+                Contract Information
               </h3>
               
               {player.contractStatus === 'free_agent' ? (
                 <div className="text-center py-8">
-                  <User className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                  <h4 className="text-xl font-semibold text-green-800 mb-2">Free Agent</h4>
-                  <p className="text-green-600">
+                  <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <User className="w-10 h-10 text-green-600" />
+                  </div>
+                  <h4 className="text-2xl font-bold text-green-800 mb-2">Free Agent</h4>
+                  <p className="text-green-600 mb-4">
                     This player is currently available for signing by any team.
                   </p>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center justify-center space-x-2">
+                      <CheckCircle className="w-5 h-5 text-green-600" />
+                      <span className="font-medium text-green-800">Available for Transfer</span>
+                    </div>
+                  </div>
                 </div>
               ) : player.currentContract ? (
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                    <span className="font-medium text-blue-900">Contract Type:</span>
-                    <div className="flex items-center space-x-2">
-                      {getContractStatusIcon(player.currentContract.contractType)}
-                      <span className="font-semibold capitalize">
-                        {player.currentContract.contractType}
-                      </span>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="font-medium text-blue-900">Contract Type</span>
+                      <div className="flex items-center space-x-2">
+                        {getContractStatusIcon(player.currentContract.contractType)}
+                        <span className="font-bold text-blue-800 capitalize">
+                          {player.currentContract.contractType}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   
                   {player.currentContract.team && (
-                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <span className="font-medium">Team:</span>
-                      <span className="font-semibold">{player.currentContract.team.name}</span>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-700">Team</span>
+                        <span className="font-bold text-gray-900">{player.currentContract.team.name}</span>
+                      </div>
                     </div>
                   )}
                   
                   {player.currentContract.season && (
-                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <span className="font-medium">Season:</span>
-                      <span className="font-semibold">
-                        {player.currentContract.season.name}
-                        {player.currentContract.season.isActive && (
-                          <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
-                            Active
-                          </span>
-                        )}
-                      </span>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-700">Season</span>
+                        <div className="text-right">
+                          <div className="font-bold text-gray-900">{player.currentContract.season.name}</div>
+                          {player.currentContract.season.isActive && (
+                            <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
                   
                   {player.currentContract.startDate && (
-                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <span className="font-medium">Start Date:</span>
-                      <span className="font-semibold">
-                        {format(new Date(player.currentContract.startDate), 'MMM dd, yyyy')}
-                      </span>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-700">Contract Start</span>
+                        <span className="font-bold text-gray-900">
+                          {format(new Date(player.currentContract.startDate), 'MMM dd, yyyy')}
+                        </span>
+                      </div>
                     </div>
                   )}
                   
                   {player.currentContract.endDate ? (
-                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <span className="font-medium">End Date:</span>
-                      <span className="font-semibold">
-                        {format(new Date(player.currentContract.endDate), 'MMM dd, yyyy')}
-                      </span>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-700">Contract End</span>
+                        <span className="font-bold text-gray-900">
+                          {format(new Date(player.currentContract.endDate), 'MMM dd, yyyy')}
+                        </span>
+                      </div>
                     </div>
                   ) : (
-                    <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <span className="font-medium">Contract Duration:</span>
-                      <span className="font-semibold text-blue-600">Open-ended</span>
+                    <div className="bg-blue-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-blue-700">Contract Duration</span>
+                        <span className="font-bold text-blue-600">Open-ended</span>
+                      </div>
                     </div>
                   )}
                   
                   {player.currentContract.contractValue > 0 && (
-                    <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                      <span className="font-medium text-green-800">Contract Value:</span>
-                      <span className="font-bold text-green-600">
-                        MVR {player.currentContract.contractValue.toLocaleString()}
-                      </span>
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-green-700">Contract Value</span>
+                        <span className="font-bold text-green-600 text-xl">
+                          MVR {player.currentContract.contractValue.toLocaleString()}
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -590,79 +708,83 @@ export default function PlayerProfile() {
             </div>
 
             {/* Transfer Eligibility */}
-            <div className="card">
-              <h3 className="text-lg font-semibold mb-4 flex items-center">
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <h3 className="text-xl font-bold mb-6 flex items-center">
                 <Activity className="w-5 h-5 mr-2 text-purple-600" />
-                Transfer Eligibility
+                Transfer Status
               </h3>
               
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {player.contractStatus === 'free_agent' ? (
-                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                      <span className="font-semibold text-green-800">Transfer Available</span>
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-6">
+                    <div className="text-center">
+                      <CheckCircle className="w-12 h-12 text-green-600 mx-auto mb-3" />
+                      <h4 className="font-bold text-green-800 text-lg mb-2">Transfer Available</h4>
+                      <p className="text-green-700 text-sm">
+                        Player can join any team at any time during transfer windows.
+                      </p>
                     </div>
-                    <p className="text-green-700 text-sm">
-                      Player can join any team at any time during transfer windows.
-                    </p>
                   </div>
                 ) : player.contractStatus === 'normal' ? (
-                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                      <span className="font-semibold text-blue-800">Mid-Season Transfer Allowed</span>
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                    <div className="text-center">
+                      <FileText className="w-12 h-12 text-blue-600 mx-auto mb-3" />
+                      <h4 className="font-bold text-blue-800 text-lg mb-2">Mid-Season Transfer Allowed</h4>
+                      <p className="text-blue-700 text-sm">
+                        Normal contract allows transfers during the season with team agreement.
+                      </p>
                     </div>
-                    <p className="text-blue-700 text-sm">
-                      Normal contract allows transfers during the season with team agreement.
-                    </p>
                   </div>
                 ) : player.contractStatus === 'seasonal' ? (
-                  <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <div className="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                      <span className="font-semibold text-yellow-800">Season-End Transfer Only</span>
-                    </div>
-                    <p className="text-yellow-700 text-sm">
-                      Seasonal contract restricts transfers until the current season ends.
-                    </p>
-                    {player.currentContract?.season?.isActive && (
-                      <p className="text-yellow-600 text-xs mt-2">
-                        Current season is still active - transfers blocked.
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+                    <div className="text-center">
+                      <Clock className="w-12 h-12 text-yellow-600 mx-auto mb-3" />
+                      <h4 className="font-bold text-yellow-800 text-lg mb-2">Season-End Transfer Only</h4>
+                      <p className="text-yellow-700 text-sm mb-3">
+                        Seasonal contract restricts transfers until the current season ends.
                       </p>
-                    )}
+                      {player.currentContract?.season?.isActive ? (
+                        <div className="bg-red-100 text-red-800 px-3 py-2 rounded-lg text-xs">
+                          Current season active - transfers blocked
+                        </div>
+                      ) : (
+                        <div className="bg-green-100 text-green-800 px-3 py-2 rounded-lg text-xs">
+                          Season ended - transfers allowed
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ) : (
-                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <div className="w-3 h-3 bg-gray-500 rounded-full"></div>
-                      <span className="font-semibold text-gray-800">Status Unknown</span>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-6">
+                    <div className="text-center">
+                      <AlertCircle className="w-12 h-12 text-gray-600 mx-auto mb-3" />
+                      <h4 className="font-bold text-gray-800 text-lg mb-2">Status Unknown</h4>
+                      <p className="text-gray-700 text-sm">
+                        Transfer eligibility information is not available.
+                      </p>
                     </div>
-                    <p className="text-gray-700 text-sm">
-                      Transfer eligibility information is not available.
-                    </p>
                   </div>
                 )}
 
-                {/* Contract Rules Explanation */}
-                <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <h4 className="font-semibold text-blue-900 mb-2">Contract Types Explained</h4>
-                  <div className="space-y-2 text-sm text-blue-800">
+                {/* Contract Rules Guide */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="font-bold text-blue-900 mb-3">Contract Types Guide</h4>
+                  <div className="space-y-2 text-sm">
                     <div className="flex items-start space-x-2">
-                      <FileText className="w-4 h-4 mt-0.5 text-blue-600" />
-                      <div>
+                      <FileText className="w-4 h-4 mt-0.5 text-blue-600 flex-shrink-0" />
+                      <div className="text-blue-800">
                         <strong>Normal Contract:</strong> Allows mid-season transfers with mutual agreement
                       </div>
                     </div>
                     <div className="flex items-start space-x-2">
-                      <Clock className="w-4 h-4 mt-0.5 text-purple-600" />
-                      <div>
+                      <Clock className="w-4 h-4 mt-0.5 text-purple-600 flex-shrink-0" />
+                      <div className="text-blue-800">
                         <strong>Seasonal Contract:</strong> Player committed until season ends
                       </div>
                     </div>
                     <div className="flex items-start space-x-2">
-                      <User className="w-4 h-4 mt-0.5 text-green-600" />
-                      <div>
+                      <User className="w-4 h-4 mt-0.5 text-green-600 flex-shrink-0" />
+                      <div className="text-blue-800">
                         <strong>Free Agent:</strong> Available for signing by any team
                       </div>
                     </div>
@@ -673,93 +795,108 @@ export default function PlayerProfile() {
           </div>
         )}
 
+        {/* Enhanced Statistics Tab */}
         {activeTab === 'stats' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Career Stats */}
-            <div className="card">
-              <h3 className="text-lg font-semibold mb-4">Career Statistics</h3>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Total Matches</span>
-                  <span className="font-bold text-blue-600">{player.stats?.matchesPlayed || 0}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Total Goals</span>
-                  <span className="font-bold text-green-600">{player.stats?.goals || 0}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Total Assists</span>
-                  <span className="font-bold text-blue-600">{player.stats?.assists || 0}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Minutes Played</span>
-                  <span className="font-bold text-purple-600">{player.stats?.minutesPlayed || 0}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Yellow Cards</span>
-                  <span className="font-bold text-yellow-600">{player.stats?.yellowCards || 0}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Red Cards</span>
-                  <span className="font-bold text-red-600">{player.stats?.redCards || 0}</span>
-                </div>
+          <div className="space-y-8">
+            {/* Career Overview */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center">
+                <Target className="w-8 h-8 text-green-600 mx-auto mb-3" />
+                <div className="text-3xl font-bold text-green-600 mb-1">{player.careerStats?.goals || 0}</div>
+                <div className="text-gray-600">Career Goals</div>
+              </div>
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center">
+                <Award className="w-8 h-8 text-blue-600 mx-auto mb-3" />
+                <div className="text-3xl font-bold text-blue-600 mb-1">{player.careerStats?.assists || 0}</div>
+                <div className="text-gray-600">Career Assists</div>
+              </div>
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center">
+                <Activity className="w-8 h-8 text-purple-600 mx-auto mb-3" />
+                <div className="text-3xl font-bold text-purple-600 mb-1">{player.careerStats?.appearances || 0}</div>
+                <div className="text-gray-600">Appearances</div>
+              </div>
+              <div className="bg-white rounded-xl shadow-lg p-6 text-center">
+                <Clock className="w-8 h-8 text-yellow-600 mx-auto mb-3" />
+                <div className="text-3xl font-bold text-yellow-600 mb-1">{player.careerStats?.minutesPlayed || 0}</div>
+                <div className="text-gray-600">Minutes Played</div>
               </div>
             </div>
 
-            {/* Averages */}
-            <div className="card">
-              <h3 className="text-lg font-semibold mb-4">Per Match Averages</h3>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Goals per Match</span>
-                  <span className="font-bold text-green-600">
-                    {player.stats?.matchesPlayed > 0 ? 
-                      ((player.stats?.goals || 0) / player.stats.matchesPlayed).toFixed(2) : 
-                      '0.00'
-                    }
-                  </span>
+            {/* Detailed Statistics */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <h3 className="text-xl font-bold mb-6">Career Statistics</h3>
+                <div className="space-y-4">
+                  {[
+                    { label: 'Total Matches', value: player.careerStats?.appearances || 0, color: 'text-blue-600' },
+                    { label: 'Total Goals', value: player.careerStats?.goals || 0, color: 'text-green-600' },
+                    { label: 'Total Assists', value: player.careerStats?.assists || 0, color: 'text-blue-600' },
+                    { label: 'Minutes Played', value: player.careerStats?.minutesPlayed || 0, color: 'text-purple-600' },
+                    { label: 'Yellow Cards', value: player.careerStats?.yellowCards || 0, color: 'text-yellow-600' },
+                    { label: 'Red Cards', value: player.careerStats?.redCards || 0, color: 'text-red-600' }
+                  ].map((stat, index) => (
+                    <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-gray-700">{stat.label}</span>
+                      <span className={`font-bold text-xl ${stat.color}`}>{stat.value}</span>
+                    </div>
+                  ))}
                 </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Assists per Match</span>
-                  <span className="font-bold text-blue-600">
-                    {player.stats?.matchesPlayed > 0 ? 
-                      ((player.stats?.assists || 0) / player.stats.matchesPlayed).toFixed(2) : 
-                      '0.00'
+              </div>
+
+              <div className="bg-white rounded-xl shadow-lg p-6">
+                <h3 className="text-xl font-bold mb-6">Performance Averages</h3>
+                <div className="space-y-4">
+                  {[
+                    {
+                      label: 'Goals per Match',
+                      value: player.careerStats?.appearances > 0 ? 
+                        ((player.careerStats?.goals || 0) / player.careerStats.appearances).toFixed(2) : 
+                        '0.00',
+                      color: 'text-green-600'
+                    },
+                    {
+                      label: 'Assists per Match',
+                      value: player.careerStats?.appearances > 0 ? 
+                        ((player.careerStats?.assists || 0) / player.careerStats.appearances).toFixed(2) : 
+                        '0.00',
+                      color: 'text-blue-600'
+                    },
+                    {
+                      label: 'Minutes per Match',
+                      value: player.careerStats?.appearances > 0 ? 
+                        Math.round((player.careerStats?.minutesPlayed || 0) / player.careerStats.appearances) : 
+                        0,
+                      color: 'text-purple-600'
+                    },
+                    {
+                      label: 'Goal Contributions',
+                      value: player.careerStats?.appearances > 0 ? 
+                        (((player.careerStats?.goals || 0) + (player.careerStats?.assists || 0)) / player.careerStats.appearances).toFixed(2) : 
+                        '0.00',
+                      color: 'text-indigo-600'
                     }
-                  </span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Minutes per Match</span>
-                  <span className="font-bold text-purple-600">
-                    {player.stats?.matchesPlayed > 0 ? 
-                      Math.round((player.stats?.minutesPlayed || 0) / player.stats.matchesPlayed) : 
-                      0
-                    }
-                  </span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                  <span className="font-medium">Goal Contributions</span>
-                  <span className="font-bold text-indigo-600">
-                    {player.stats?.matchesPlayed > 0 ? 
-                      (((player.stats?.goals || 0) + (player.stats?.assists || 0)) / player.stats.matchesPlayed).toFixed(2) : 
-                      '0.00'
-                    }
-                  </span>
+                  ].map((stat, index) => (
+                    <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-gray-700">{stat.label}</span>
+                      <span className={`font-bold text-xl ${stat.color}`}>{stat.value}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
           </div>
         )}
 
+        {/* Enhanced Matches Tab */}
         {activeTab === 'matches' && (
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-6">Team Match History</h3>
-            <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-blue-800 text-sm">
-                <strong>Note:</strong> Currently showing matches from {player.currentTeam?.name || "the player's team"}. 
-                Individual player participation tracking is not yet implemented.
-              </p>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold">Match History</h3>
+              <div className="text-sm text-gray-600">
+                {playerMatches.length} matches found
+              </div>
             </div>
+            
             {playerMatches.length > 0 ? (
               <div className="space-y-4">
                 {playerMatches.map((match, index) => {
@@ -773,28 +910,28 @@ export default function PlayerProfile() {
                   if (match.status === 'completed') {
                     if (teamScore > opponentScore) {
                       result = 'W';
-                      resultColor = 'bg-green-100 text-green-800';
+                      resultColor = 'bg-green-500 text-white';
                     } else if (teamScore < opponentScore) {
                       result = 'L';
-                      resultColor = 'bg-red-100 text-red-800';
+                      resultColor = 'bg-red-500 text-white';
                     } else {
                       result = 'D';
-                      resultColor = 'bg-yellow-100 text-yellow-800';
+                      resultColor = 'bg-yellow-500 text-white';
                     }
                   }
                   
                   return (
-                    <div key={match._id || index} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div key={match._id || index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
-                          <div className="text-sm text-gray-600">
-                            {format(new Date(match.matchDate), 'MMM dd, yyyy')}
+                          <div className="text-sm text-gray-600 w-16">
+                            {formatMatchDate(match.matchDate)}
                           </div>
-                          <div className="font-medium">
+                          <div className="font-medium flex-1">
                             {isPlayerTeamHome ? 'vs' : '@'} {opponent?.name}
                           </div>
                           {match.venue && (
-                            <div className="text-sm text-gray-500">
+                            <div className="text-sm text-gray-500 hidden md:block">
                               at {match.venue}
                             </div>
                           )}
@@ -806,19 +943,20 @@ export default function PlayerProfile() {
                                 {teamScore} - {opponentScore}
                               </div>
                               {result && (
-                                <span className={`px-2 py-1 rounded text-sm font-bold ${resultColor}`}>
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${resultColor}`}>
                                   {result}
-                                </span>
+                                </div>
                               )}
                             </>
                           )}
                           {match.status === 'scheduled' && (
-                            <span className="text-blue-600 text-sm">
+                            <div className="text-blue-600 text-sm">
                               {format(new Date(match.matchDate), 'HH:mm')}
-                            </span>
+                            </div>
                           )}
-                          <Link href={`/matches/${match._id}`} className="text-blue-600 hover:text-blue-800 text-sm">
-                            View Match
+                          <Link href={`/matches/${match._id}`} className="text-blue-600 hover:text-blue-800 text-sm flex items-center">
+                            <Eye className="w-4 h-4 mr-1" />
+                            View
                           </Link>
                         </div>
                       </div>
@@ -827,38 +965,56 @@ export default function PlayerProfile() {
                 })}
               </div>
             ) : (
-              <div className="text-center py-8">
-                <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No match history available</p>
+              <div className="text-center py-12">
+                <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h4 className="text-lg font-semibold text-gray-700 mb-2">No Match History</h4>
+                <p className="text-gray-500">No match history available for this player</p>
               </div>
             )}
           </div>
         )}
 
+        {/* Enhanced Transfers Tab */}
         {activeTab === 'transfers' && (
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-6">Transfer History</h3>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold">Transfer History</h3>
+              <div className="text-sm text-gray-600">
+                {playerTransfers.length} transfers found
+              </div>
+            </div>
+            
             {playerTransfers.length > 0 ? (
               <div className="space-y-4">
                 {playerTransfers.map((transfer, index) => (
-                  <div key={transfer._id || index} className="border rounded-lg p-4">
+                  <div key={transfer._id || index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-4">
-                        <div className="text-sm text-gray-600">
+                        <div className="text-sm text-gray-600 w-24">
                           {format(new Date(transfer.transferDate), 'MMM dd, yyyy')}
                         </div>
-                        <div className="font-medium">
-                          {transfer.fromTeam ? transfer.fromTeam.name : 'New Registration'} 
-                          → {transfer.toTeam?.name || 'Free Agent'}
+                        <div className="flex items-center space-x-2">
+                          <span className="font-medium">
+                            {transfer.fromTeam ? transfer.fromTeam.name : 'New Registration'}
+                          </span>
+                          <ChevronRight className="w-4 h-4 text-gray-400" />
+                          <span className="font-medium text-blue-600">
+                            {transfer.toTeam?.name || 'Free Agent'}
+                          </span>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      <div className="flex items-center space-x-3">
+                        {transfer.transferFee > 0 && (
+                          <span className="text-green-600 font-medium">
+                            MVR {transfer.transferFee.toLocaleString()}
+                          </span>
+                        )}
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                           transfer.transferType === 'registration' ? 'bg-green-100 text-green-800' :
                           transfer.transferType === 'transfer' ? 'bg-blue-100 text-blue-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          {transfer.transferType?.toUpperCase()}
+                          {transfer.transferType?.toUpperCase() || 'TRANSFER'}
                         </span>
                       </div>
                     </div>
@@ -866,9 +1022,10 @@ export default function PlayerProfile() {
                 ))}
               </div>
             ) : (
-              <div className="text-center py-8">
-                <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No transfer history available</p>
+              <div className="text-center py-12">
+                <Activity className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                <h4 className="text-lg font-semibold text-gray-700 mb-2">No Transfer History</h4>
+                <p className="text-gray-500">No transfer history available for this player</p>
               </div>
             )}
           </div>
@@ -877,8 +1034,9 @@ export default function PlayerProfile() {
 
       {/* Back to Players */}
       <div className="flex justify-center">
-        <Link href="/players" className="btn btn-secondary">
-          ← Back to All Players
+        <Link href="/players" className="flex items-center bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-medium transition-colors">
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to All Players
         </Link>
       </div>
     </div>
