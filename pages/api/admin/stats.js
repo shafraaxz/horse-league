@@ -1,15 +1,14 @@
 // ===========================================
-// FILE: pages/api/admin/stats.js (FIXED - All Correct Imports)
+// FILE: pages/api/admin/stats.js (FIXED VERSION)
 // ===========================================
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
-import { connectToDatabase } from '../../../lib/mongodb';
+import dbConnect from '../../../lib/mongodb'; // Fixed import
 import Player from '../../../models/Player';
 import Team from '../../../models/Team';
 import Match from '../../../models/Match';
 import Season from '../../../models/Season';
 import Transfer from '../../../models/Transfer';
-import FairPlayRecord from '../../../models/FairPlayRecord';
 
 export default async function handler(req, res) {
   try {
@@ -23,7 +22,7 @@ export default async function handler(req, res) {
       return res.status(405).json({ message: 'Method not allowed' });
     }
 
-    await connectToDatabase();
+    await dbConnect();
 
     // Get current active season
     const activeSeason = await Season.findOne({ isActive: true });
@@ -35,11 +34,10 @@ export default async function handler(req, res) {
       totalTeams, 
       totalMatches,
       totalTransfers,
-      totalFairPlayRecords,
       seasonStats
     ] = await Promise.all([
       // Total players across all seasons
-      Player.countDocuments({}),
+      Player.countDocuments({ status: 'active' }),
       
       // Total teams across all seasons
       Team.countDocuments({}),
@@ -47,23 +45,33 @@ export default async function handler(req, res) {
       // Total matches across all seasons
       Match.countDocuments({}),
       
-      // Total transfers across all seasons
-      Transfer.countDocuments({}).catch(() => 0), // Handle if Transfer model doesn't exist
-      
-      // Total fair play records
-      FairPlayRecord.countDocuments({}).catch(() => 0), // Handle if FairPlayRecord model doesn't exist
+      // Total transfers across all seasons - handle if Transfer model doesn't exist
+      Transfer.countDocuments({}).catch(() => 0),
       
       // Season-specific stats (if active season exists)
-      seasonId ? await getSeasonStats(seasonId) : {}
+      seasonId ? getSeasonStats(seasonId) : {}
     ]);
+
+    // Calculate total goals across all completed matches
+    const allCompletedMatches = await Match.find({ 
+      status: 'completed',
+      homeScore: { $exists: true, $ne: null },
+      awayScore: { $exists: true, $ne: null }
+    }).select('homeScore awayScore');
+    
+    const totalGoals = allCompletedMatches.reduce((sum, match) => {
+      const homeScore = parseInt(match.homeScore) || 0;
+      const awayScore = parseInt(match.awayScore) || 0;
+      return sum + homeScore + awayScore;
+    }, 0);
 
     const stats = {
       // Overall stats
       totalPlayers,
       totalTeams,
       totalMatches,
+      totalGoals,
       totalTransfers,
-      totalFairPlayRecords,
       
       // Season-specific stats
       ...seasonStats,
@@ -73,7 +81,8 @@ export default async function handler(req, res) {
         id: activeSeason._id,
         name: activeSeason.name,
         startDate: activeSeason.startDate,
-        endDate: activeSeason.endDate
+        endDate: activeSeason.endDate,
+        isActive: activeSeason.isActive
       } : null
     };
 
@@ -99,12 +108,13 @@ async function getSeasonStats(seasonId) {
       liveMatches,
       scheduledMatches,
       seasonTransfers,
-      seasonFairPlayRecords
+      seasonGoals
     ] = await Promise.all([
       // Players in current season (through their teams)
       Team.find({ season: seasonId }).then(teams => 
         Player.countDocuments({ 
-          currentTeam: { $in: teams.map(t => t._id) } 
+          currentTeam: { $in: teams.map(t => t._id) },
+          status: 'active'
         })
       ),
       
@@ -126,13 +136,29 @@ async function getSeasonStats(seasonId) {
       // Transfers in current season
       Transfer.countDocuments({ season: seasonId }).catch(() => 0),
       
-      // Fair play records in current season
-      FairPlayRecord.countDocuments({ season: seasonId }).catch(() => 0)
+      // Goals in current season
+      Match.find({ 
+        season: seasonId, 
+        status: 'completed',
+        homeScore: { $exists: true, $ne: null },
+        awayScore: { $exists: true, $ne: null }
+      }).select('homeScore awayScore').then(matches => 
+        matches.reduce((sum, match) => {
+          const homeScore = parseInt(match.homeScore) || 0;
+          const awayScore = parseInt(match.awayScore) || 0;
+          return sum + homeScore + awayScore;
+        }, 0)
+      )
     ]);
 
     // Calculate additional stats
     const matchCompletionRate = seasonMatches > 0 
       ? Math.round((completedMatches / seasonMatches) * 100) 
+      : 0;
+
+    // Calculate average goals per match
+    const avgGoalsPerMatch = completedMatches > 0 
+      ? Math.round((seasonGoals / completedMatches) * 100) / 100 
       : 0;
 
     return {
@@ -143,8 +169,9 @@ async function getSeasonStats(seasonId) {
       liveMatches,
       scheduledMatches,
       seasonTransfers,
-      seasonFairPlayRecords,
-      matchCompletionRate
+      seasonGoals,
+      matchCompletionRate,
+      avgGoalsPerMatch
     };
   } catch (error) {
     console.error('Error fetching season stats:', error);
