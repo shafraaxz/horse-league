@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/players/[id].js (ENHANCED PLAYER PROFILE)
+// FILE: pages/players/[id].js (ENHANCED PLAYER PROFILE - FIXED VERSION)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
@@ -46,66 +46,116 @@ export default function PlayerProfile() {
     }
   }, [id]);
 
+  // FIXED fetchPlayerData function
   const fetchPlayerData = async () => {
     try {
       setIsLoading(true);
       
-      // Use Promise.all for parallel requests
-      const requests = [
-        // Try individual player API first
-        fetch(`/api/players/${id}`).catch(() => null),
-        // Fallback to search in public players
-        fetch(`/api/public/players?search=${id}`).catch(() => null),
-        // Get player matches
-        fetch(`/api/public/matches?playerId=${id}&limit=20`).catch(() => null),
-        // Get player transfers
-        fetch(`/api/public/transfers?playerId=${id}&limit=10`).catch(() => null)
-      ];
-
-      const [individualResponse, searchResponse, matchesResponse, transfersResponse] = await Promise.all(requests);
-
-      // Process player data
+      console.log('🔍 Fetching player data for ID:', id);
+      
+      // Primary: Try individual player API
       let foundPlayer = null;
       
-      if (individualResponse && individualResponse.ok) {
-        foundPlayer = await individualResponse.json();
-      } else if (searchResponse && searchResponse.ok) {
-        const playersData = await searchResponse.json();
-        foundPlayer = Array.isArray(playersData) ? 
-          playersData.find(p => p._id === id) : null;
-      }
-
-      if (foundPlayer) {
-        setPlayer(foundPlayer);
+      try {
+        console.log('🔍 Trying individual player API:', `/api/players/${id}`);
+        const individualResponse = await fetch(`/api/players/${id}`);
         
-        // Fetch team players for comparison if player has a team
-        if (foundPlayer.currentTeam?._id) {
-          try {
-            const teamPlayersResponse = await fetch(`/api/public/players?teamId=${foundPlayer.currentTeam._id}`);
-            if (teamPlayersResponse.ok) {
-              const teamPlayersData = await teamPlayersResponse.json();
-              setTeamPlayers(Array.isArray(teamPlayersData) ? teamPlayersData : []);
+        if (individualResponse.ok) {
+          foundPlayer = await individualResponse.json();
+          console.log('✅ Found player via individual API:', foundPlayer.name);
+        } else {
+          console.log('❌ Individual API failed with status:', individualResponse.status);
+        }
+      } catch (error) {
+        console.log('❌ Individual API error:', error.message);
+      }
+      
+      // Fallback: Search in public players ONLY if individual API completely failed
+      if (!foundPlayer) {
+        try {
+          console.log('🔍 Trying public search API fallback:', `/api/public/players?search=${id}`);
+          const searchResponse = await fetch(`/api/public/players?search=${id}`);
+          
+          if (searchResponse.ok) {
+            const playersData = await searchResponse.json();
+            
+            if (Array.isArray(playersData) && playersData.length > 0) {
+              // Find exact match by ID
+              foundPlayer = playersData.find(p => p._id === id);
+              
+              if (!foundPlayer && playersData.length === 1) {
+                // If only one result and no exact ID match, use it
+                foundPlayer = playersData[0];
+              }
+              
+              console.log('✅ Found player via search API:', foundPlayer?.name || 'No exact match');
+            } else {
+              console.log('❌ Search API returned no players');
             }
-          } catch (error) {
-            console.log('Team players not available');
+          } else {
+            console.log('❌ Search API failed with status:', searchResponse.status);
           }
+        } catch (error) {
+          console.log('❌ Search API error:', error.message);
         }
       }
-
-      // Process matches data
-      if (matchesResponse && matchesResponse.ok) {
-        const matchesData = await matchesResponse.json();
-        setPlayerMatches(Array.isArray(matchesData) ? matchesData : []);
+      
+      // If we still don't have a player, stop here
+      if (!foundPlayer) {
+        console.log('❌ No player found with ID:', id);
+        setPlayer(null);
+        setIsLoading(false);
+        return;
       }
-
-      // Process transfers data
-      if (transfersResponse && transfersResponse.ok) {
-        const transfersData = await transfersResponse.json();
-        setPlayerTransfers(Array.isArray(transfersData) ? transfersData : []);
+      
+      // Set the player first so page renders
+      setPlayer(foundPlayer);
+      
+      // Parallel fetch of related data (these can fail without breaking the page)
+      const relatedDataPromises = [];
+      
+      // Get player matches
+      relatedDataPromises.push(
+        fetch(`/api/public/matches?playerId=${id}&limit=20`)
+          .then(res => res.ok ? res.json() : [])
+          .catch(() => [])
+      );
+      
+      // Get player transfers  
+      relatedDataPromises.push(
+        fetch(`/api/public/transfers?playerId=${id}&limit=10`)
+          .then(res => res.ok ? res.json() : [])
+          .catch(() => [])
+      );
+      
+      // Get team players for comparison (if player has a team)
+      if (foundPlayer.currentTeam?._id) {
+        relatedDataPromises.push(
+          fetch(`/api/public/players?teamId=${foundPlayer.currentTeam._id}&limit=50`)
+            .then(res => res.ok ? res.json() : [])
+            .catch(() => [])
+        );
+      } else {
+        relatedDataPromises.push(Promise.resolve([]));
       }
-
+      
+      const [matchesData, transfersData, teamPlayersData] = await Promise.all(relatedDataPromises);
+      
+      console.log('✅ Player profile data loaded:', {
+        player: foundPlayer.name,
+        matches: Array.isArray(matchesData) ? matchesData.length : 0,
+        transfers: Array.isArray(transfersData) ? transfersData.length : 0,
+        teamPlayers: Array.isArray(teamPlayersData) ? teamPlayersData.length : 0
+      });
+      
+      // Set related data
+      setPlayerMatches(Array.isArray(matchesData) ? matchesData : []);
+      setPlayerTransfers(Array.isArray(transfersData) ? transfersData : []);
+      setTeamPlayers(Array.isArray(teamPlayersData) ? teamPlayersData : []);
+      
     } catch (error) {
-      console.error('Error fetching player data:', error);
+      console.error('❌ Error in fetchPlayerData:', error);
+      setPlayer(null);
     } finally {
       setIsLoading(false);
     }
