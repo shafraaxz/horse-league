@@ -1,19 +1,27 @@
 // ===========================================
-// FILE: pages/api/admin/update-match-stats.js
+// FILE: pages/api/admin/update-match-stats.js (FIXED VERSION)
 // Updates team statistics when matches are completed
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Match from '../../../models/Match';
 import Team from '../../../models/Team';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../auth/[...nextauth]';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
-  await dbConnect();
-
   try {
+    // Check authentication
+    const session = await getServerSession(req, res, authOptions);
+    if (!session || session.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+
+    await dbConnect();
+
     const { matchId, seasonId } = req.body;
     
     // If specific match provided, update just that match
@@ -36,14 +44,14 @@ export default async function handler(req, res) {
     console.error('Error updating match stats:', error);
     res.status(500).json({ 
       message: 'Error updating match stats',
-      error: error.message 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 }
 
 async function updateSingleMatchStats(matchId) {
   const match = await Match.findById(matchId)
-    .populate('homeTeam awayTeam', 'name stats')
+    .populate('homeTeam awayTeam season', 'name stats')
     .lean();
     
   if (!match) {
@@ -51,142 +59,196 @@ async function updateSingleMatchStats(matchId) {
   }
   
   if (match.status !== 'completed') {
-    return { message: 'Match not completed yet', match: match.status };
+    return { 
+      message: 'Match not completed yet', 
+      matchStatus: match.status,
+      matchId: matchId
+    };
+  }
+
+  // Validate scores exist
+  if (match.homeScore == null || match.awayScore == null) {
+    throw new Error('Match scores are missing');
   }
   
   await updateTeamStatsFromMatch(match);
   
   return {
-    message: 'Single match stats updated',
+    message: 'Single match stats updated successfully',
     match: {
+      id: match._id,
       homeTeam: match.homeTeam.name,
       awayTeam: match.awayTeam.name,
-      score: `${match.homeScore}-${match.awayScore}`
+      score: `${match.homeScore}-${match.awayScore}`,
+      season: match.season?.name
     }
   };
 }
 
 async function updateSeasonStats(seasonId) {
+  // Validate season exists
+  const seasonExists = await Team.findOne({ season: seasonId });
+  if (!seasonExists) {
+    throw new Error('No teams found for this season');
+  }
+
   // Reset all team stats for the season first
   const teams = await Team.find({ season: seasonId });
   
   for (const team of teams) {
+    // Initialize stats object if it doesn't exist
     await Team.findByIdAndUpdate(team._id, {
-      stats: {
-        matchesPlayed: 0,
-        wins: 0,
-        draws: 0,
-        losses: 0,
-        goalsFor: 0,
-        goalsAgainst: 0,
-        points: 0
+      $set: {
+        'stats.matchesPlayed': 0,
+        'stats.wins': 0,
+        'stats.draws': 0,
+        'stats.losses': 0,
+        'stats.goalsFor': 0,
+        'stats.goalsAgainst': 0,
+        'stats.goalDifference': 0,
+        'stats.points': 0
       }
-    });
+    }, { upsert: true });
   }
   
-  // Get all completed matches for the season
+  // Get all completed matches for the season with valid scores
   const matches = await Match.find({ 
     season: seasonId,
-    status: 'completed'
-  }).populate('homeTeam awayTeam');
+    status: 'completed',
+    homeScore: { $exists: true, $ne: null },
+    awayScore: { $exists: true, $ne: null }
+  }).populate('homeTeam awayTeam season');
   
   let updatedCount = 0;
+  let errorCount = 0;
   
   for (const match of matches) {
-    await updateTeamStatsFromMatch(match);
-    updatedCount++;
+    try {
+      await updateTeamStatsFromMatch(match);
+      updatedCount++;
+    } catch (error) {
+      console.error(`Error updating match ${match._id}:`, error);
+      errorCount++;
+    }
   }
   
   return {
-    message: 'Season stats updated',
+    message: 'Season stats updated successfully',
     seasonId,
     matchesProcessed: updatedCount,
-    teamsUpdated: teams.length
+    teamsUpdated: teams.length,
+    errors: errorCount
   };
 }
 
 async function updateAllMatchStats() {
-  // Reset all team stats first
+  // Reset all team stats first - ensure stats object exists
   await Team.updateMany({}, {
-    stats: {
-      matchesPlayed: 0,
-      wins: 0,
-      draws: 0,
-      losses: 0,
-      goalsFor: 0,
-      goalsAgainst: 0,
-      points: 0
+    $set: {
+      'stats.matchesPlayed': 0,
+      'stats.wins': 0,
+      'stats.draws': 0,
+      'stats.losses': 0,
+      'stats.goalsFor': 0,
+      'stats.goalsAgainst': 0,
+      'stats.goalDifference': 0,
+      'stats.points': 0
     }
   });
   
-  // Get all completed matches
-  const matches = await Match.find({ status: 'completed' })
-    .populate('homeTeam awayTeam');
+  // Get all completed matches with valid scores
+  const matches = await Match.find({ 
+    status: 'completed',
+    homeScore: { $exists: true, $ne: null },
+    awayScore: { $exists: true, $ne: null }
+  }).populate('homeTeam awayTeam season');
   
   let updatedCount = 0;
+  let errorCount = 0;
   
   for (const match of matches) {
-    await updateTeamStatsFromMatch(match);
-    updatedCount++;
+    try {
+      await updateTeamStatsFromMatch(match);
+      updatedCount++;
+    } catch (error) {
+      console.error(`Error updating match ${match._id}:`, error);
+      errorCount++;
+    }
   }
   
   const totalTeams = await Team.countDocuments();
   
   return {
-    message: 'All match stats updated',
+    message: 'All match stats updated successfully',
     matchesProcessed: updatedCount,
-    teamsUpdated: totalTeams
+    teamsUpdated: totalTeams,
+    errors: errorCount
   };
 }
 
 async function updateTeamStatsFromMatch(match) {
-  const homeScore = match.homeScore || 0;
-  const awayScore = match.awayScore || 0;
+  if (!match.homeTeam || !match.awayTeam) {
+    throw new Error('Match missing team information');
+  }
+
+  const homeScore = parseInt(match.homeScore) || 0;
+  const awayScore = parseInt(match.awayScore) || 0;
+  const goalDifference = homeScore - awayScore;
   
   // Determine results
   let homeResult, awayResult, homePoints, awayPoints;
   
   if (homeScore > awayScore) {
     // Home win
-    homeResult = 'win';
-    awayResult = 'loss';
+    homeResult = 'wins';
+    awayResult = 'losses';
     homePoints = 3;
     awayPoints = 0;
   } else if (homeScore < awayScore) {
     // Away win
-    homeResult = 'loss';
-    awayResult = 'win';
+    homeResult = 'losses';
+    awayResult = 'wins';
     homePoints = 0;
     awayPoints = 3;
   } else {
     // Draw
-    homeResult = 'draw';
-    awayResult = 'draw';
+    homeResult = 'draws';
+    awayResult = 'draws';
     homePoints = 1;
     awayPoints = 1;
   }
   
   // Update home team stats
-  await Team.findByIdAndUpdate(match.homeTeam._id, {
+  const homeUpdate = await Team.findByIdAndUpdate(match.homeTeam._id, {
     $inc: {
       'stats.matchesPlayed': 1,
-      [`stats.${homeResult}s`]: 1,
+      [`stats.${homeResult}`]: 1,
       'stats.goalsFor': homeScore,
       'stats.goalsAgainst': awayScore,
+      'stats.goalDifference': goalDifference,
       'stats.points': homePoints
     }
-  });
+  }, { new: true });
+
+  if (!homeUpdate) {
+    throw new Error(`Failed to update home team: ${match.homeTeam._id}`);
+  }
   
   // Update away team stats
-  await Team.findByIdAndUpdate(match.awayTeam._id, {
+  const awayUpdate = await Team.findByIdAndUpdate(match.awayTeam._id, {
     $inc: {
       'stats.matchesPlayed': 1,
-      [`stats.${awayResult}s`]: 1,
+      [`stats.${awayResult}`]: 1,
       'stats.goalsFor': awayScore,
       'stats.goalsAgainst': homeScore,
+      'stats.goalDifference': -goalDifference, // Negative for away team
       'stats.points': awayPoints
     }
-  });
+  }, { new: true });
+
+  if (!awayUpdate) {
+    throw new Error(`Failed to update away team: ${match.awayTeam._id}`);
+  }
   
-  console.log(`Updated stats: ${match.homeTeam.name} ${homeScore}-${awayScore} ${match.awayTeam.name}`);
+  console.log(`✅ Updated stats: ${match.homeTeam.name} ${homeScore}-${awayScore} ${match.awayTeam.name}`);
 }
