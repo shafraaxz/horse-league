@@ -1,0 +1,340 @@
+// ===========================================
+// CRITICAL MIGRATION: Restore Lost Player Career Statistics
+// Run this ONCE after applying the stats preservation fixes
+// ===========================================
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '../auth/[...nextauth]';
+import dbConnect from '../../../lib/mongodb';
+import Player from '../../../models/Player';
+import Transfer from '../../../models/Transfer';
+import Match from '../../../models/Match';
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ message: 'Method not allowed' });
+  }
+
+  try {
+    const session = await getServerSession(req, res, authOptions);
+    if (!session || session.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Access denied. Admin rights required.' });
+    }
+
+    await dbConnect();
+
+    console.log('🔧 STARTING CAREER STATS RECOVERY MIGRATION...');
+
+    // Get all players
+    const allPlayers = await Player.find({}).lean();
+    console.log(`📊 Found ${allPlayers.length} total players to analyze`);
+
+    let playersRestored = 0;
+    let playersAlreadyGood = 0;
+    let playersWithIssues = 0;
+    const restorationLog = [];
+    const issuesLog = [];
+
+    for (const player of allPlayers) {
+      try {
+        console.log(`\n🔍 Analyzing ${player.name}...`);
+
+        // Check current career stats
+        const currentCareerStats = player.careerStats || {};
+        const hasValidCareerStats = currentCareerStats.goals > 0 || currentCareerStats.assists > 0 || currentCareerStats.appearances > 0;
+
+        console.log(`   Current careerStats: Goals=${currentCareerStats.goals || 0}, Assists=${currentCareerStats.assists || 0}, Appearances=${currentCareerStats.appearances || 0}`);
+
+        // Strategy 1: Restore from matchHistory if exists and careerStats are missing/low
+        let restoredFromMatches = false;
+        if (player.matchHistory && player.matchHistory.length > 0) {
+          const matchStatsTotal = player.matchHistory.reduce((total, match) => ({
+            goals: total.goals + (match.goals || 0),
+            assists: total.assists + (match.assists || 0),
+            appearances: total.appearances + 1,
+            yellowCards: total.yellowCards + (match.yellowCards || 0),
+            redCards: total.redCards + (match.redCards || 0),
+            minutesPlayed: total.minutesPlayed + (match.minutesPlayed || 40) // Default 40 min per match
+          }), { goals: 0, assists: 0, appearances: 0, yellowCards: 0, redCards: 0, minutesPlayed: 0 });
+
+          console.log(`   MatchHistory totals: Goals=${matchStatsTotal.goals}, Assists=${matchStatsTotal.assists}, Appearances=${matchStatsTotal.appearances}`);
+
+          // If matchHistory has more stats than careerStats, restore from matches
+          if (matchStatsTotal.goals > (currentCareerStats.goals || 0) || 
+              matchStatsTotal.assists > (currentCareerStats.assists || 0) ||
+              matchStatsTotal.appearances > (currentCareerStats.appearances || 0)) {
+
+            await Player.findByIdAndUpdate(player._id, {
+              careerStats: {
+                goals: Math.max(matchStatsTotal.goals, currentCareerStats.goals || 0),
+                assists: Math.max(matchStatsTotal.assists, currentCareerStats.assists || 0),
+                appearances: Math.max(matchStatsTotal.appearances, currentCareerStats.appearances || 0),
+                yellowCards: Math.max(matchStatsTotal.yellowCards, currentCareerStats.yellowCards || 0),
+                redCards: Math.max(matchStatsTotal.redCards, currentCareerStats.redCards || 0),
+                minutesPlayed: Math.max(matchStatsTotal.minutesPlayed, currentCareerStats.minutesPlayed || 0)
+              }
+            });
+
+            restorationLog.push({
+              playerId: player._id,
+              playerName: player.name,
+              method: 'matchHistory',
+              before: currentCareerStats,
+              after: {
+                goals: Math.max(matchStatsTotal.goals, currentCareerStats.goals || 0),
+                assists: Math.max(matchStatsTotal.assists, currentCareerStats.assists || 0),
+                appearances: Math.max(matchStatsTotal.appearances, currentCareerStats.appearances || 0)
+              }
+            });
+
+            console.log(`   ✅ RESTORED from matchHistory`);
+            playersRestored++;
+            restoredFromMatches = true;
+          }
+        }
+
+        // Strategy 2: Check if player has transfer history but missing stats (likely lost during transfers)
+        if (!restoredFromMatches && !hasValidCareerStats) {
+          const transfers = await Transfer.find({ player: player._id }).lean();
+          
+          if (transfers.length > 0) {
+            console.log(`   🔄 Found ${transfers.length} transfers - checking for preserved stats...`);
+
+            // Look for stats in transfer records (if our enhanced transfer system saved them)
+            let restoredFromTransfers = false;
+            for (const transfer of transfers) {
+              if (transfer.preservedStatsSnapshot) {
+                console.log(`   📦 Found preserved stats in transfer:`, transfer.preservedStatsSnapshot);
+                
+                await Player.findByIdAndUpdate(player._id, {
+                  careerStats: transfer.preservedStatsSnapshot
+                });
+
+                restorationLog.push({
+                  playerId: player._id,
+                  playerName: player.name,
+                  method: 'transferRecord',
+                  before: currentCareerStats,
+                  after: transfer.preservedStatsSnapshot,
+                  transferId: transfer._id
+                });
+
+                console.log(`   ✅ RESTORED from transfer record`);
+                playersRestored++;
+                restoredFromTransfers = true;
+                break;
+              }
+            }
+
+            // Strategy 3: Try to reconstruct from completed matches if possible
+            if (!restoredFromTransfers) {
+              console.log(`   🎯 Attempting reconstruction from match data...`);
+
+              const playerMatches = await Match.find({
+                $or: [
+                  { 'homeTeam.players': player._id },
+                  { 'awayTeam.players': player._id },
+                  { 'homeLineup': player._id },
+                  { 'awayLineup': player._id }
+                ],
+                status: 'completed'
+              }).lean();
+
+              if (playerMatches.length > 0) {
+                console.log(`   🏆 Found ${playerMatches.length} completed matches`);
+
+                // This is a best-effort reconstruction - you may need to adjust based on your match data structure
+                let reconstructedStats = {
+                  goals: 0,
+                  assists: 0,
+                  appearances: playerMatches.length,
+                  yellowCards: 0,
+                  redCards: 0,
+                  minutesPlayed: playerMatches.length * 40 // Estimate
+                };
+
+                // Try to find goals/assists in match events or match data
+                for (const match of playerMatches) {
+                  if (match.events) {
+                    const playerEvents = match.events.filter(event => 
+                      event.playerId && event.playerId.toString() === player._id.toString()
+                    );
+                    
+                    reconstructedStats.goals += playerEvents.filter(e => e.eventType === 'goal').length;
+                    reconstructedStats.assists += playerEvents.filter(e => e.eventType === 'assist').length;
+                    reconstructedStats.yellowCards += playerEvents.filter(e => e.eventType === 'yellow_card').length;
+                    reconstructedStats.redCards += playerEvents.filter(e => e.eventType === 'red_card').length;
+                  }
+                }
+
+                if (reconstructedStats.goals > 0 || reconstructedStats.assists > 0 || reconstructedStats.appearances > 0) {
+                  await Player.findByIdAndUpdate(player._id, {
+                    careerStats: reconstructedStats
+                  });
+
+                  restorationLog.push({
+                    playerId: player._id,
+                    playerName: player.name,
+                    method: 'matchReconstruction',
+                    before: currentCareerStats,
+                    after: reconstructedStats,
+                    matchesAnalyzed: playerMatches.length
+                  });
+
+                  console.log(`   ✅ RECONSTRUCTED from ${playerMatches.length} matches`);
+                  playersRestored++;
+                } else {
+                  // Initialize empty but valid career stats
+                  await Player.findByIdAndUpdate(player._id, {
+                    careerStats: {
+                      goals: 0,
+                      assists: 0,
+                      appearances: 0,
+                      yellowCards: 0,
+                      redCards: 0,
+                      minutesPlayed: 0
+                    }
+                  });
+
+                  console.log(`   🆕 INITIALIZED empty careerStats`);
+                  playersRestored++;
+                }
+              } else {
+                // No match data found - this player might need manual attention
+                issuesLog.push({
+                  playerId: player._id,
+                  playerName: player.name,
+                  issue: 'No match data found for reconstruction',
+                  transfers: transfers.length,
+                  currentStats: currentCareerStats
+                });
+                playersWithIssues++;
+                console.log(`   ⚠️ NO MATCH DATA - Manual review needed`);
+              }
+            }
+          } else {
+            // No transfers, might be a new player
+            if (!player.careerStats) {
+              await Player.findByIdAndUpdate(player._id, {
+                careerStats: {
+                  goals: 0,
+                  assists: 0,
+                  appearances: 0,
+                  yellowCards: 0,
+                  redCards: 0,
+                  minutesPlayed: 0
+                }
+              });
+              console.log(`   🆕 INITIALIZED new player careerStats`);
+              playersRestored++;
+            } else {
+              playersAlreadyGood++;
+              console.log(`   ✅ Already has valid careerStats`);
+            }
+          }
+        } else if (!restoredFromMatches) {
+          playersAlreadyGood++;
+          console.log(`   ✅ Already has valid careerStats`);
+        }
+
+      } catch (error) {
+        console.error(`❌ Error processing ${player.name}:`, error);
+        issuesLog.push({
+          playerId: player._id,
+          playerName: player.name,
+          issue: 'Processing error',
+          error: error.message
+        });
+        playersWithIssues++;
+      }
+    }
+
+    console.log('\n🎉 MIGRATION COMPLETED!');
+
+    // Verification: Re-check all players and calculate totals
+    const allPlayersAfter = await Player.find({}).select('name careerStats').lean();
+    const totalGoalsAfter = allPlayersAfter.reduce((sum, p) => sum + (p.careerStats?.goals || 0), 0);
+    const totalAssistsAfter = allPlayersAfter.reduce((sum, p) => sum + (p.careerStats?.assists || 0), 0);
+    const totalAppearancesAfter = allPlayersAfter.reduce((sum, p) => sum + (p.careerStats?.appearances || 0), 0);
+
+    const summary = {
+      totalPlayersProcessed: allPlayers.length,
+      playersRestored,
+      playersAlreadyGood,
+      playersWithIssues,
+      verificationTotals: {
+        totalGoals: totalGoalsAfter,
+        totalAssists: totalAssistsAfter,
+        totalAppearances: totalAppearancesAfter
+      },
+      restorationMethods: {
+        fromMatchHistory: restorationLog.filter(r => r.method === 'matchHistory').length,
+        fromTransferRecords: restorationLog.filter(r => r.method === 'transferRecord').length,
+        fromMatchReconstruction: restorationLog.filter(r => r.method === 'matchReconstruction').length
+      }
+    };
+
+    console.log('\n📊 FINAL SUMMARY:', summary);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Career stats recovery migration completed',
+      summary,
+      restorationLog: restorationLog.slice(0, 20), // First 20 for brevity
+      issuesRequiringAttention: issuesLog,
+      recommendations: issuesLog.length > 0 ? [
+        'Review players in issuesRequiringAttention array',
+        'Manually verify stats for players with transfer history but no match data',
+        'Consider running additional match data imports if available'
+      ] : [
+        'All player stats have been successfully restored or verified',
+        'Run the frontend pages to verify goal totals are now accurate'
+      ]
+    });
+
+  } catch (error) {
+    console.error('Migration failed:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Migration failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+}
+
+// Additional helper endpoint to verify stats integrity
+export async function verifyStatsIntegrity() {
+  await dbConnect();
+  
+  const players = await Player.find({}).select('name careerStats matchHistory').lean();
+  const issues = [];
+  
+  for (const player of players) {
+    // Check if careerStats exist
+    if (!player.careerStats) {
+      issues.push({
+        player: player.name,
+        issue: 'Missing careerStats object'
+      });
+      continue;
+    }
+    
+    // Check if matchHistory totals exceed careerStats (might indicate incomplete migration)
+    if (player.matchHistory && player.matchHistory.length > 0) {
+      const matchTotal = player.matchHistory.reduce((sum, m) => sum + (m.goals || 0), 0);
+      if (matchTotal > (player.careerStats.goals || 0)) {
+        issues.push({
+          player: player.name,
+          issue: 'MatchHistory shows more goals than careerStats',
+          matchHistoryGoals: matchTotal,
+          careerStatsGoals: player.careerStats.goals || 0
+        });
+      }
+    }
+  }
+  
+  return {
+    totalPlayers: players.length,
+    totalGoals: players.reduce((sum, p) => sum + (p.careerStats?.goals || 0), 0),
+    issues
+  };
+}
