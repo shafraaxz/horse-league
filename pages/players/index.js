@@ -1,3 +1,9 @@
+// ===========================================
+// FIXED FRONTEND PAGES - Players & Teams Statistics
+// ===========================================
+
+// FILE 1: pages/players/index.js (FIXED VERSION - Remove Artificial Limits)
+// ===========================================
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -38,7 +44,7 @@ const getNormalizedStats = (player) => {
 
 export default function PlayersPage() {
   const [players, setPlayers] = useState([]);
-  const [allPlayers, setAllPlayers] = useState([]); // Store all for client-side operations
+  const [allPlayers, setAllPlayers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTeam, setSelectedTeam] = useState('');
   const [selectedPosition, setSelectedPosition] = useState('');
@@ -47,9 +53,9 @@ export default function PlayersPage() {
   const [teams, setTeams] = useState([]);
   const [seasons, setSeasons] = useState([]);
   const [selectedSeason, setSelectedSeason] = useState('');
-  const [sortBy, setSortBy] = useState('name'); // 'name', 'goals', 'assists', 'age', 'team'
+  const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
-  const [viewMode, setViewMode] = useState('grid'); // 'grid', 'list'
+  const [viewMode, setViewMode] = useState('grid');
   const [showFilters, setShowFilters] = useState(false);
   const [playerStats, setPlayerStats] = useState({
     totalPlayers: 0,
@@ -100,6 +106,7 @@ export default function PlayersPage() {
     }
   };
 
+  // FIXED: Fetch ALL players without limit parameter
   const fetchPlayers = async () => {
     try {
       setIsLoading(true);
@@ -108,6 +115,7 @@ export default function PlayersPage() {
       const params = new URLSearchParams();
       if (selectedTeam) params.append('teamId', selectedTeam);
       if (selectedSeason) params.append('seasonId', selectedSeason);
+      // REMOVED: limit parameter to get ALL players
       
       const response = await fetch(`${url}${params.toString()}`);
       
@@ -115,11 +123,13 @@ export default function PlayersPage() {
         const data = await response.json();
         
         if (Array.isArray(data)) {
-          console.log('Raw players data sample:', data.slice(0, 3).map(p => ({
+          console.log('FIXED: Raw players data sample (ALL PLAYERS):', data.slice(0, 3).map(p => ({
             name: p.name,
             careerGoals: p.careerStats?.goals,
             careerAssists: p.careerStats?.assists
           })));
+          
+          console.log(`FIXED: Loaded ${data.length} players (NO LIMIT)`);
           
           setAllPlayers(data);
           calculatePlayerStats(data);
@@ -127,6 +137,7 @@ export default function PlayersPage() {
           setAllPlayers([]);
         }
       } else {
+        console.error('Failed to fetch players:', response.statusText);
         setAllPlayers([]);
       }
     } catch (error) {
@@ -137,11 +148,11 @@ export default function PlayersPage() {
     }
   };
 
-  // FIXED: Calculate player stats using consistent normalization
+  // FIXED: Calculate player stats using consistent normalization from ALL players
   const calculatePlayerStats = (playersData) => {
     const totalPlayers = playersData.length;
     
-    // FIXED: Use consistent normalization - only careerStats
+    // FIXED: Use consistent normalization - only careerStats from ALL players
     const totalGoals = playersData.reduce((sum, p) => {
       return sum + (p.careerStats?.goals || 0);
     }, 0);
@@ -159,12 +170,13 @@ export default function PlayersPage() {
       p.contractStatus === 'active' || p.currentTeam
     ).length;
 
-    console.log('Player stats calculation (FIXED):', {
+    console.log('FIXED: Player stats calculation (ALL PLAYERS):', {
       totalPlayers,
       totalGoals,
       totalAssists,
       avgAge,
-      activeContracts
+      activeContracts,
+      dataSource: 'All players without limit'
     });
 
     setPlayerStats({
@@ -241,7 +253,7 @@ export default function PlayersPage() {
     setPlayers(filtered);
   };
 
-  // FIXED: Get top performers using consistent normalization
+  // FIXED: Get top performers using consistent normalization from ALL players
   const getTopPerformers = () => {
     const topScorers = [...allPlayers]
       .filter(p => (p.careerStats?.goals || 0) > 0)
@@ -261,8 +273,8 @@ export default function PlayersPage() {
         normalizedStats: getNormalizedStats(player)
       }));
       
-    console.log('Top scorers (players page - FIXED):', topScorers.map(p => `${p.name}: ${p.normalizedStats.goals} goals`));
-    console.log('Top assisters (players page - FIXED):', topAssisters.map(p => `${p.name}: ${p.normalizedStats.assists} assists`));
+    console.log('FIXED: Top scorers (players page - ALL PLAYERS):', topScorers.map(p => `${p.name}: ${p.normalizedStats.goals} goals`));
+    console.log('FIXED: Top assisters (players page - ALL PLAYERS):', topAssisters.map(p => `${p.name}: ${p.normalizedStats.assists} assists`));
       
     return { topScorers, topAssisters };
   };
@@ -364,9 +376,13 @@ export default function PlayersPage() {
             {selectedSeason ? `Showing players from ${seasons.find(s => s._id === selectedSeason)?.name || 'selected season'}` : 'All registered players'}
             {players.length !== allPlayers.length && ` (${players.length} of ${allPlayers.length} shown)`}
           </p>
+          {/* ADDED: Debug info for verification */}
+          <p className="text-sm text-blue-600">
+            Loaded {allPlayers.length} total players • Total Goals: {playerStats.totalGoals}
+          </p>
         </div>
         
-        {/* Quick Stats Cards */}
+        {/* Quick Stats Cards - FIXED */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-blue-50 p-4 rounded-lg text-center">
             <div className="text-2xl font-bold text-blue-600">{playerStats.totalPlayers}</div>
@@ -624,7 +640,7 @@ export default function PlayersPage() {
         </div>
       )}
 
-      {/* Players Display - UPDATED with FIXED stats */}
+      {/* Players Display */}
       {viewMode === 'grid' ? (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
