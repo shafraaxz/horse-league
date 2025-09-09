@@ -1,57 +1,51 @@
-// FILE: pages/api/public/stats.js - FIXED VERSION
+// FILE: pages/api/public/stats.js - ENHANCED VERSION
 import dbConnect from '../../../lib/mongodb';
-import Player from '../../../models/Player';
 import Team from '../../../models/Team';
+import Player from '../../../models/Player';
 import Match from '../../../models/Match';
-import Season from '../../../models/Season';
 import Transfer from '../../../models/Transfer';
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ message: 'Method not allowed' });
+  }
+
+  await dbConnect();
+
   try {
-    await dbConnect();
-
-    // Get query parameters
     const { teamId, seasonId } = req.query;
-
-    // Get current active season if no season specified
-    let activeSeason = null;
-    if (!seasonId) {
-      activeSeason = await Season.findOne({ isActive: true });
-    } else {
-      activeSeason = await Season.findById(seasonId);
-    }
-
-    console.log('Public stats API called with:', { teamId, seasonId, activeSeason: activeSeason?.name });
-
-    // Build query filters
-    let playerQuery = { status: 'active' };
-    let matchQuery = { status: { $in: ['completed', 'live', 'scheduled'] } };
     
-    // Apply team filter
-    if (teamId && teamId !== 'free-agents') {
-      playerQuery.currentTeam = teamId;
-      // For matches, we want to include matches where this team participated
-      matchQuery.$or = [
-        { homeTeam: teamId },
-        { awayTeam: teamId }
-      ];
-    } else if (teamId === 'free-agents') {
-      playerQuery.currentTeam = { $exists: false };
-      // Free agents don't have matches
-      matchQuery = { _id: { $exists: false } }; // This will return no matches
-    }
+    // Build queries based on filters
+    const playerQuery = {};
+    const matchQuery = {};
     
-    // Apply season filter
-    if (seasonId) {
-      if (teamId !== 'free-agents') {
-        matchQuery.season = seasonId;
+    if (teamId && teamId !== 'all') {
+      if (teamId === 'free-agents') {
+        playerQuery.currentTeam = null;
+      } else {
+        playerQuery.currentTeam = teamId;
       }
-      // For players, season filtering is more complex due to contract history
+    }
+    
+    if (seasonId && seasonId !== 'all') {
+      matchQuery.season = seasonId;
+      // For players, we need to filter by teams in that season
+      if (!teamId || teamId === 'all') {
+        const teams = await Team.find({ season: seasonId }).select('_id');
+        const teamIds = teams.map(team => team._id);
+        playerQuery.$or = [
+          { currentTeam: { $in: teamIds } },
+          { currentTeam: null }
+        ];
+      }
     }
 
-    console.log('Queries built:', { playerQuery, matchQuery });
+    // Get active season for context
+    const activeSeason = await Team.findOne({})
+      .populate('season')
+      .then(team => team?.season?.isActive ? team.season : null);
 
-    // Parallel execution of database queries
+    // Fetch all data in parallel
     const [
       totalTeams,
       totalPlayers,
@@ -59,8 +53,10 @@ export default async function handler(req, res) {
       allPlayers,
       totalTransfers
     ] = await Promise.all([
-      // Teams count
-      teamId ? (teamId === 'free-agents' ? 0 : 1) : Team.countDocuments({}),
+      // Teams count with filters
+      teamId && teamId !== 'all' 
+        ? (teamId === 'free-agents' ? 0 : 1) 
+        : Team.countDocuments({}),
       
       // Players count with filters
       Player.countDocuments(playerQuery),
@@ -84,22 +80,17 @@ export default async function handler(req, res) {
     const liveMatchCount = liveMatches.length;
     const scheduledMatchCount = scheduledMatches.length;
 
-    // Calculate total goals - FIXED VERSION
-    // Use player stats for accurate goal counting, with fallback normalization
+    // FIXED: Calculate total goals using ONLY careerStats for consistency
     const totalGoals = allPlayers.reduce((sum, player) => {
-      // Use the same normalization logic as the frontend
-      const goals = player.careerStats?.goals || player.stats?.goals || 0;
-      return sum + goals;
+      return sum + (player.careerStats?.goals || 0);
     }, 0);
 
-    console.log('Goal calculation details:', {
+    console.log('Goal calculation details (FIXED):', {
       totalPlayers: allPlayers.length,
       totalGoals,
       samplePlayerStats: allPlayers.slice(0, 3).map(p => ({
         name: p.name,
-        careerGoals: p.careerStats?.goals,
-        statsGoals: p.stats?.goals,
-        normalizedGoals: p.careerStats?.goals || p.stats?.goals || 0
+        careerGoals: p.careerStats?.goals || 0
       }))
     });
 
@@ -138,7 +129,7 @@ export default async function handler(req, res) {
       
       // Season info
       currentSeason: activeSeason ? {
-        id: activeSeason._id,
+        _id: activeSeason._id,
         name: activeSeason.name,
         isActive: activeSeason.isActive,
         startDate: activeSeason.startDate,
@@ -146,18 +137,19 @@ export default async function handler(req, res) {
       } : null
     };
 
-    console.log('Final stats result:', {
-      totalPlayers: stats.totalPlayers,
+    console.log('📊 Stats API Response (FIXED):', {
       totalGoals: stats.totalGoals,
+      totalPlayers: stats.totalPlayers,
+      avgGoalsPerMatch: stats.avgGoalsPerMatch,
       filters: stats.filters
     });
 
     res.status(200).json(stats);
     
   } catch (error) {
-    console.error('Error fetching public stats:', error);
+    console.error('❌ Stats API error:', error);
     res.status(500).json({ 
-      message: 'Server error', 
+      message: 'Failed to fetch statistics',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
