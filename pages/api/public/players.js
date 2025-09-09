@@ -1,9 +1,10 @@
 // ===========================================
-// FILE: pages/api/public/players.js (UPDATED WITH CONTRACT STATUS)
+// FILE: pages/api/public/players.js (UPDATED - ID Card Search Support)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
 import Team from '../../../models/Team';
+import mongoose from 'mongoose';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -13,22 +14,18 @@ export default async function handler(req, res) {
   await dbConnect();
 
   try {
-    const { seasonId, teamId, search, limit = 50 } = req.query;
-    
+    const { 
+      seasonId, 
+      teamId, 
+      position, 
+      contractStatus, 
+      search, // NEW: Search parameter
+      limit = 50 
+    } = req.query;
+
     let query = {};
     
-    // Handle search by player ID or name
-    if (search) {
-      if (search.length === 24) { // MongoDB ObjectId length
-        // Search by ID first
-        query._id = search;
-      } else {
-        // Search by name
-        query.name = { $regex: search, $options: 'i' };
-      }
-    }
-    
-    // Filter by season (through teams)
+    // Season-based filtering
     if (seasonId && seasonId !== 'all') {
       const teams = await Team.find({ season: seasonId }).select('_id');
       const teamIds = teams.map(team => team._id);
@@ -43,127 +40,128 @@ export default async function handler(req, res) {
       }
     }
     
-    // Filter by team
+    // Team filtering
     if (teamId && teamId !== 'all') {
       if (teamId === 'free-agents') {
         query.currentTeam = null;
-        if (query.$or) delete query.$or; // Remove season filtering
-      } else {
-        query.currentTeam = teamId;
-        if (query.$or) delete query.$or; // Remove season filtering
+        if (query.$or) delete query.$or;
+      } else if (mongoose.Types.ObjectId.isValid(teamId)) {
+        query.currentTeam = new mongoose.Types.ObjectId(teamId);
+        if (query.$or) delete query.$or;
       }
     }
-
-    console.log('Public players API query:', JSON.stringify(query, null, 2));
     
+    // Position filtering
+    if (position && position !== 'all') {
+      query.position = position;
+    }
+    
+    // Contract status filtering
+    if (contractStatus && contractStatus !== 'all') {
+      query.contractStatus = contractStatus;
+      if (query.$or) delete query.$or;
+    }
+    
+    // NEW: Search functionality (name, ID card, email)
+    if (search && search.trim()) {
+      const searchTerm = search.trim();
+      const searchRegex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      
+      // If query already has $or, we need to combine it with search
+      if (query.$or) {
+        // Store the existing $or condition
+        const existingOr = query.$or;
+        delete query.$or;
+        
+        // Create a new compound query
+        query.$and = [
+          { $or: existingOr }, // Existing season/team conditions
+          { 
+            $or: [ // Search conditions
+              { name: searchRegex },
+              { idCardNumber: searchRegex },
+              { email: searchRegex }
+            ]
+          }
+        ];
+      } else {
+        // Simple search without existing $or
+        query.$or = [
+          { name: searchRegex },
+          { idCardNumber: searchRegex },
+          { email: searchRegex }
+        ];
+      }
+    }
+    
+    // Only show active players to public
+    query.status = { $in: ['active', 'injured'] };
+
+    console.log('Public players query:', JSON.stringify(query, null, 2));
+
     const players = await Player.find(query)
       .populate('currentTeam', 'name logo season')
-      .populate('currentContract.team', 'name logo') // NEW: Populate contract team
-      .populate('currentContract.season', 'name isActive startDate endDate') // NEW: Populate contract season
+      .populate('currentContract.team', 'name logo')
+      .populate('currentContract.season', 'name isActive startDate endDate')
+      .select('-email -phone -emergencyContact -medicalInfo -notes -transferHistory -contractHistory') // Hide private data
       .sort({ name: 1 })
       .limit(parseInt(limit))
       .lean();
 
-    console.log(`Public players API: Found ${players.length} players`);
+    // Process players for public consumption
+    const publicPlayers = players.map(player => ({
+      _id: player._id,
+      name: player.name,
+      idCardNumber: player.idCardNumber, // NOW VISIBLE for verification purposes
+      dateOfBirth: player.dateOfBirth,
+      nationality: player.nationality,
+      position: player.position,
+      jerseyNumber: player.jerseyNumber,
+      height: player.height,
+      weight: player.weight,
+      photo: player.photo,
+      currentTeam: player.currentTeam,
+      status: player.status,
+      
+      // Contract information
+      contractStatus: player.contractStatus || 'free_agent',
+      currentContract: player.currentContract ? {
+        team: player.currentContract.team,
+        season: player.currentContract.season,
+        contractType: player.currentContract.contractType,
+        contractValue: player.currentContract.contractValue, // Public for transparency
+        startDate: player.currentContract.startDate,
+        endDate: player.currentContract.endDate
+      } : null,
+      
+      // Statistics
+      careerStats: player.careerStats || {
+        appearances: 0,
+        goals: 0,
+        assists: 0,
+        yellowCards: 0,
+        redCards: 0,
+        minutesPlayed: 0
+      },
+      seasonStats: player.seasonStats ? Object.fromEntries(player.seasonStats) : {},
+      
+      // Computed fields
+      age: player.age,
+      isTransferEligible: player.isTransferEligible,
+      
+      createdAt: player.createdAt,
+      updatedAt: player.updatedAt
+    }));
 
-    // Remove private/sensitive data and ensure contract status is included
-    const publicPlayers = players.map(player => {
-      // Debug contract data
-      if (player._id.toString() === search) {
-        console.log('Player contract debug:', {
-          playerId: player._id,
-          name: player.name,
-          contractStatus: player.contractStatus,
-          currentContract: player.currentContract
-        });
-      }
+    console.log(`Public API returned ${publicPlayers.length} players`);
 
-      return {
-        _id: player._id,
-        name: player.name,
-        position: player.position || 'Outfield Player',
-        jerseyNumber: player.jerseyNumber,
-        dateOfBirth: player.dateOfBirth,
-        nationality: player.nationality || '',
-        height: player.height,
-        weight: player.weight,
-        photo: normalizePhoto(player.photo),
-        currentTeam: player.currentTeam ? {
-          _id: player.currentTeam._id,
-          name: player.currentTeam.name,
-          logo: normalizePhoto(player.currentTeam.logo),
-          season: player.currentTeam.season
-        } : null,
-        status: player.status,
-        
-        // NEW: Include contract information (public safe data)
-        contractStatus: player.contractStatus || 'free_agent',
-        currentContract: player.currentContract && player.currentContract.team ? {
-          team: player.currentContract.team ? {
-            _id: player.currentContract.team._id,
-            name: player.currentContract.team.name,
-            logo: normalizePhoto(player.currentContract.team.logo)
-          } : null,
-          season: player.currentContract.season ? {
-            _id: player.currentContract.season._id,
-            name: player.currentContract.season.name,
-            isActive: player.currentContract.season.isActive,
-            startDate: player.currentContract.season.startDate,
-            endDate: player.currentContract.season.endDate
-          } : null,
-          contractType: player.currentContract.contractType,
-          startDate: player.currentContract.startDate,
-          endDate: player.currentContract.endDate,
-          contractValue: player.currentContract.contractValue || 0,
-          notes: player.currentContract.notes || ''
-        } : null,
-        
-        careerStats: player.careerStats || {
-          appearances: 0,
-          goals: 0,
-          assists: 0,
-          yellowCards: 0,
-          redCards: 0,
-          minutesPlayed: 0,
-          wins: 0,
-          losses: 0,
-          draws: 0
-        },
-        
-        // Computed stats for display
-        stats: {
-          goals: player.careerStats?.goals || 0,
-          assists: player.careerStats?.assists || 0,
-          matchesPlayed: player.careerStats?.appearances || 0,
-          yellowCards: player.careerStats?.yellowCards || 0,
-          redCards: player.careerStats?.redCards || 0,
-          minutesPlayed: player.careerStats?.minutesPlayed || 0
-        }
-      };
-    });
+    return res.status(200).json(publicPlayers);
 
-    res.status(200).json(publicPlayers);
-    
   } catch (error) {
-    console.error('Public players API error:', error);
-    res.status(500).json({ 
-      message: 'Server error', 
+    console.error('Error fetching public players:', error);
+    return res.status(500).json({ 
+      message: 'Failed to fetch players',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
-}
-
-// Helper function to normalize photo/logo data
-function normalizePhoto(photo) {
-  if (!photo) return null;
-  
-  if (typeof photo === 'string') {
-    return photo;
-  }
-  
-  if (typeof photo === 'object') {
-    return photo.secure_url || photo.url || null;
-  }
-  
-  return null;
 }
