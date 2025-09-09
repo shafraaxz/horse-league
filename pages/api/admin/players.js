@@ -1,5 +1,5 @@
 // ===========================================
-// FILE 1: pages/api/admin/players.js (FIXED VERSION WITH TRANSFER STATS PRESERVATION)
+// FILE: pages/api/admin/players.js (COMPLETE FIXED VERSION)
 // ===========================================
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
@@ -42,7 +42,7 @@ export default async function handler(req, res) {
   }
 }
 
-// FIXED: GET - Fetch ALL players without artificial limits
+// GET - Fetch ALL players without artificial limits
 async function getPlayers(req, res) {
   try {
     const { seasonId, teamId, contractStatus, search } = req.query;
@@ -90,7 +90,7 @@ async function getPlayers(req, res) {
       ];
     }
 
-    // FIXED: Remove limit to get ALL players
+    // Remove limit to get ALL players
     const players = await Player.find(query)
       .populate('currentTeam', 'name logo')
       .populate('currentContract.team', 'name logo')
@@ -122,7 +122,7 @@ async function getPlayers(req, res) {
       contractStatus: player.contractStatus || 'free_agent',
       currentContract: player.currentContract || null,
       
-      // FIXED: Always preserve careerStats
+      // Always preserve careerStats
       careerStats: player.careerStats || {
         appearances: 0,
         goals: 0,
@@ -144,7 +144,7 @@ async function getPlayers(req, res) {
   }
 }
 
-// FIXED: PUT - Update player with career stats preservation
+// PUT - Update player with career stats preservation
 async function updatePlayer(req, res) {
   try {
     const { id } = req.body;
@@ -168,7 +168,7 @@ async function updatePlayer(req, res) {
       minutesPlayed: 0
     };
 
-    console.log(`🛡️ Preserving career stats for ${existingPlayer.name}:`, preservedCareerStats);
+    console.log(`Preserving career stats for ${existingPlayer.name}:`, preservedCareerStats);
 
     // Track team changes for transfer record
     const oldTeamId = existingPlayer.currentTeam?.toString();
@@ -207,7 +207,7 @@ async function updatePlayer(req, res) {
       const newTeamId = updateData.currentTeam.toString();
       
       if (oldTeamId !== newTeamId && oldContractTeamId !== newTeamId) {
-        console.log(`🔄 Team change detected for ${existingPlayer.name} - PRESERVING career stats`);
+        console.log(`Team change detected for ${existingPlayer.name} - PRESERVING career stats`);
         
         const activeSeason = await Season.findOne({ isActive: true });
         
@@ -238,4 +238,209 @@ async function updatePlayer(req, res) {
           updateData.contractStatus = 'normal';
         }
       }
-    } else if
+    } else if (updateData.currentTeam === null || updateData.currentTeam === '') {
+      // Player released to free agency - PRESERVE career stats
+      console.log(`Releasing ${existingPlayer.name} to free agency - preserving career stats`);
+      updateData.contractStatus = 'free_agent';
+      updateData.currentContract = {};
+      updateData.currentTeam = null;
+      // Career stats explicitly preserved above
+    }
+
+    const updatedPlayer = await Player.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    ).populate('currentTeam', 'name logo')
+     .populate('currentContract.team', 'name logo')
+     .populate('currentContract.season', 'name isActive');
+
+    console.log('Player updated with preserved career stats:', updatedPlayer._id);
+
+    // Create transfer record if team changed
+    const newTeamId = updatedPlayer.currentTeam?._id?.toString();
+    if (oldTeamId !== newTeamId || oldContractTeamId !== newTeamId) {
+      console.log('Creating transfer record (stats preservation confirmed)');
+      await createTransferRecordWithStatsPreservation(id, oldTeamId || oldContractTeamId, newTeamId, preservedCareerStats);
+    }
+
+    return res.status(200).json({
+      message: 'Player updated successfully with preserved career statistics',
+      player: updatedPlayer
+    });
+
+  } catch (error) {
+    console.error('Error updating player:', error);
+    
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({ 
+        message: 'Validation error', 
+        errors: messages 
+      });
+    }
+
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Duplicate entry detected' });
+    }
+
+    return res.status(500).json({ 
+      message: 'Failed to update player', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+}
+
+// Enhanced transfer record creation with stats preservation confirmation
+async function createTransferRecordWithStatsPreservation(playerId, oldTeamId, newTeamId, preservedStats, transferType = 'transfer') {
+  try {
+    const activeSeason = await Season.findOne({ isActive: true });
+    if (!activeSeason) {
+      console.warn('No active season found - skipping transfer record creation');
+      return;
+    }
+
+    let notes = `Transfer completed - career statistics preserved: Goals: ${preservedStats.goals}, Assists: ${preservedStats.assists}, Yellow Cards: ${preservedStats.yellowCards}, Red Cards: ${preservedStats.redCards}, Appearances: ${preservedStats.appearances}`;
+    
+    if (transferType === 'registration') {
+      notes = newTeamId ? 
+        `Player registered to team - career stats preserved: ${JSON.stringify(preservedStats)}` : 
+        `Player registered as free agent - career stats preserved: ${JSON.stringify(preservedStats)}`;
+    } else if (!oldTeamId && newTeamId) {
+      transferType = 'registration';
+      notes = `Joined team from free agency - career stats preserved: ${JSON.stringify(preservedStats)}`;
+    } else if (oldTeamId && !newTeamId) {
+      transferType = 'release';
+      notes = `Released to free agency - career stats preserved: ${JSON.stringify(preservedStats)}`;
+    } else if (oldTeamId && newTeamId) {
+      transferType = 'transfer';
+      notes = `Transfer between teams - career stats preserved: ${JSON.stringify(preservedStats)}`;
+    }
+
+    const transferData = {
+      player: playerId,
+      fromTeam: oldTeamId || null,
+      toTeam: newTeamId || null,
+      season: activeSeason._id,
+      transferDate: new Date(),
+      transferType: transferType,
+      notes: notes,
+      // Metadata to confirm stats preservation
+      preservedStatsSnapshot: preservedStats
+    };
+
+    const transfer = new Transfer(transferData);
+    await transfer.save();
+    
+    console.log('Transfer record created with stats preservation confirmed:', transfer._id);
+  } catch (transferError) {
+    console.error('Transfer creation failed (non-fatal):', transferError);
+  }
+}
+
+// Create player function with career stats initialization
+async function createPlayer(req, res) {
+  try {
+    const { name } = req.body;
+    
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ message: 'Player name is required' });
+    }
+
+    // Initialize player data with empty career stats
+    const playerData = {
+      name: name.trim(),
+      careerStats: {
+        appearances: 0,
+        goals: 0,
+        assists: 0,
+        yellowCards: 0,
+        redCards: 0,
+        minutesPlayed: 0
+      },
+      contractStatus: 'free_agent',
+      status: 'active'
+    };
+
+    // Add optional fields
+    Object.keys(req.body).forEach(key => {
+      if (key !== 'name' && key !== 'careerStats' && req.body[key] !== undefined && req.body[key] !== '') {
+        if (key === 'currentTeam' && mongoose.Types.ObjectId.isValid(req.body[key])) {
+          playerData[key] = new mongoose.Types.ObjectId(req.body[key]);
+        } else if (key === 'jerseyNumber') {
+          playerData[key] = req.body[key] ? parseInt(req.body[key]) : null;
+        } else if (key === 'email') {
+          playerData[key] = req.body[key] ? req.body[key].toLowerCase().trim() : null;
+        } else {
+          playerData[key] = req.body[key];
+        }
+      }
+    });
+
+    const player = new Player(playerData);
+    await player.save();
+
+    const populatedPlayer = await Player.findById(player._id)
+      .populate('currentTeam', 'name logo')
+      .populate('currentContract.team', 'name logo')
+      .populate('currentContract.season', 'name isActive');
+
+    console.log('Player created with initialized career stats:', player._id);
+
+    return res.status(201).json({
+      message: 'Player created successfully',
+      player: populatedPlayer
+    });
+
+  } catch (error) {
+    console.error('Error creating player:', error);
+    
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({ 
+        message: 'Validation error', 
+        errors: messages 
+      });
+    }
+
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Duplicate entry detected' });
+    }
+
+    return res.status(500).json({ 
+      message: 'Failed to create player', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+}
+
+// Delete player function
+async function deletePlayer(req, res) {
+  try {
+    const { id } = req.query;
+
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Valid player ID is required' });
+    }
+
+    const player = await Player.findById(id);
+    if (!player) {
+      return res.status(404).json({ message: 'Player not found' });
+    }
+
+    await Player.findByIdAndDelete(id);
+
+    console.log('Player deleted:', player.name);
+
+    return res.status(200).json({
+      message: 'Player deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deleting player:', error);
+    return res.status(500).json({ 
+      message: 'Failed to delete player', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
+  }
+}
