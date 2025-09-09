@@ -1,7 +1,7 @@
 // ===========================================
-// FILE: pages/api/matches/live/update-stats.js
+// FILE: pages/api/matches/live/update-stats.js (FIXED VERSION)
 // ===========================================
-import connectDB from '../../../../lib/mongodb';
+import dbConnect from '../../../../lib/mongodb'; // Fixed import name
 import Player from '../../../../models/Player';
 import Match from '../../../../models/Match';
 import { getServerSession } from 'next-auth/next';
@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    await connectDB();
+    await dbConnect();
     
     const session = await getServerSession(req, res, authOptions);
     if (!session || session.user.role !== 'admin') {
@@ -21,6 +21,11 @@ export default async function handler(req, res) {
     }
 
     const { matchId, events, homeScore, awayScore } = req.body;
+
+    // Validate input
+    if (!matchId || !Array.isArray(events)) {
+      return res.status(400).json({ message: 'Invalid input data' });
+    }
 
     const match = await Match.findById(matchId)
       .populate('homeTeam')
@@ -32,6 +37,9 @@ export default async function handler(req, res) {
     }
 
     console.log(`Updating player stats for match: ${match.homeTeam.name} vs ${match.awayTeam.name}`);
+
+    // Clear existing stats for this match to prevent duplicates
+    await clearExistingMatchStats(matchId, match.season._id);
 
     // Process each event and update player statistics
     for (const event of events) {
@@ -161,25 +169,35 @@ export default async function handler(req, res) {
         // Add to match history
         if (!player.matchHistory) player.matchHistory = [];
         
+        // Determine player's team and opponent
+        const playerTeamId = player.currentTeam.toString();
+        const isHomeTeam = playerTeamId === match.homeTeam._id.toString();
+        const opponentTeamId = isHomeTeam ? match.awayTeam._id : match.homeTeam._id;
+        
+        // Calculate match result for this player
+        let result = 'draw';
+        if (homeScore !== awayScore) {
+          if (isHomeTeam) {
+            result = homeScore > awayScore ? 'win' : 'loss';
+          } else {
+            result = awayScore > homeScore ? 'win' : 'loss';
+          }
+        }
+
         player.matchHistory.push({
           match: matchId,
           season: match.season._id,
           team: player.currentTeam,
           date: match.matchDate,
-          opponent: player.currentTeam.toString() === match.homeTeam._id.toString() 
-            ? match.awayTeam._id 
-            : match.homeTeam._id,
+          opponent: opponentTeamId,
           homeTeam: match.homeTeam._id,
           awayTeam: match.awayTeam._id,
-          result: homeScore === awayScore ? 'draw' : 
-            (player.currentTeam.toString() === match.homeTeam._id.toString() 
-              ? (homeScore > awayScore ? 'win' : 'loss')
-              : (awayScore > homeScore ? 'win' : 'loss')),
+          result: result,
           goals: events.filter(e => e.player === playerId && e.type === 'goal').length,
           assists: events.filter(e => e.player === playerId && e.type === 'assist').length,
           yellowCards: events.filter(e => e.player === playerId && e.type === 'yellow_card').length,
           redCards: events.filter(e => e.player === playerId && e.type === 'red_card').length,
-          minutesPlayed: 90 // Default to full match, can be updated later
+          minutesPlayed: 40 // Fixed: Changed from 90 to 40 minutes for futsal
         });
 
         await player.save();
@@ -189,7 +207,8 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ 
       message: 'Player statistics updated successfully',
-      playersUpdated: allPlayerIds.length
+      playersUpdated: allPlayerIds.length,
+      eventsProcessed: events.length
     });
 
   } catch (error) {
@@ -198,5 +217,51 @@ export default async function handler(req, res) {
       message: 'Failed to update player statistics',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
+  }
+}
+
+// Helper function to clear existing match stats to prevent duplicates
+async function clearExistingMatchStats(matchId, seasonId) {
+  try {
+    // Find all players who have this match in their history
+    const playersWithMatch = await Player.find({
+      'matchHistory.match': matchId
+    });
+
+    for (const player of playersWithMatch) {
+      // Find the match history entry
+      const matchHistoryIndex = player.matchHistory.findIndex(
+        h => h.match.toString() === matchId.toString()
+      );
+
+      if (matchHistoryIndex >= 0) {
+        const matchHistory = player.matchHistory[matchHistoryIndex];
+        
+        // Subtract the stats from season and career totals
+        const seasonStats = player.seasonStats?.[seasonId.toString()];
+        if (seasonStats) {
+          seasonStats.goals = Math.max(0, seasonStats.goals - (matchHistory.goals || 0));
+          seasonStats.assists = Math.max(0, seasonStats.assists - (matchHistory.assists || 0));
+          seasonStats.yellowCards = Math.max(0, seasonStats.yellowCards - (matchHistory.yellowCards || 0));
+          seasonStats.redCards = Math.max(0, seasonStats.redCards - (matchHistory.redCards || 0));
+          seasonStats.appearances = Math.max(0, seasonStats.appearances - 1);
+        }
+
+        if (player.careerStats) {
+          player.careerStats.goals = Math.max(0, player.careerStats.goals - (matchHistory.goals || 0));
+          player.careerStats.assists = Math.max(0, player.careerStats.assists - (matchHistory.assists || 0));
+          player.careerStats.yellowCards = Math.max(0, player.careerStats.yellowCards - (matchHistory.yellowCards || 0));
+          player.careerStats.redCards = Math.max(0, player.careerStats.redCards - (matchHistory.redCards || 0));
+          player.careerStats.appearances = Math.max(0, player.careerStats.appearances - 1);
+        }
+
+        // Remove the match history entry
+        player.matchHistory.splice(matchHistoryIndex, 1);
+        
+        await player.save();
+      }
+    }
+  } catch (error) {
+    console.error('Error clearing existing match stats:', error);
   }
 }
