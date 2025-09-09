@@ -24,15 +24,15 @@ const getImageUrl = (imageData) => {
   return null;
 };
 
-// Helper function to get normalized stats
+// FIXED: Helper function to get normalized stats - USE ONLY careerStats
 const getNormalizedStats = (player) => {
   return {
-    goals: player.careerStats?.goals || player.stats?.goals || 0,
-    assists: player.careerStats?.assists || player.stats?.assists || 0,
-    appearances: player.careerStats?.appearances || player.stats?.matchesPlayed || player.stats?.appearances || 0,
-    yellowCards: player.careerStats?.yellowCards || player.stats?.yellowCards || 0,
-    redCards: player.careerStats?.redCards || player.stats?.redCards || 0,
-    minutesPlayed: player.careerStats?.minutesPlayed || player.stats?.minutesPlayed || 0
+    goals: player.careerStats?.goals || 0,
+    assists: player.careerStats?.assists || 0,
+    appearances: player.careerStats?.appearances || 0,
+    yellowCards: player.careerStats?.yellowCards || 0,
+    redCards: player.careerStats?.redCards || 0,
+    minutesPlayed: player.careerStats?.minutesPlayed || 0
   };
 };
 
@@ -56,7 +56,8 @@ export default function PlayersPage() {
     totalGoals: 0,
     totalAssists: 0,
     avgAge: 0,
-    contractDistribution: {}
+    activeContracts: 0,
+    freeAgents: 0
   });
 
   useEffect(() => {
@@ -117,9 +118,7 @@ export default function PlayersPage() {
           console.log('Raw players data sample:', data.slice(0, 3).map(p => ({
             name: p.name,
             careerGoals: p.careerStats?.goals,
-            statsGoals: p.stats?.goals,
-            careerAssists: p.careerStats?.assists,
-            statsAssists: p.stats?.assists
+            careerAssists: p.careerStats?.assists
           })));
           
           setAllPlayers(data);
@@ -138,16 +137,17 @@ export default function PlayersPage() {
     }
   };
 
+  // FIXED: Calculate player stats using consistent normalization
   const calculatePlayerStats = (playersData) => {
     const totalPlayers = playersData.length;
-    // Use normalized stats for accurate calculation
+    
+    // FIXED: Use consistent normalization - only careerStats
     const totalGoals = playersData.reduce((sum, p) => {
-      const stats = getNormalizedStats(p);
-      return sum + stats.goals;
+      return sum + (p.careerStats?.goals || 0);
     }, 0);
+    
     const totalAssists = playersData.reduce((sum, p) => {
-      const stats = getNormalizedStats(p);
-      return sum + stats.assists;
+      return sum + (p.careerStats?.assists || 0);
     }, 0);
     
     const playersWithAge = playersData.filter(p => p.dateOfBirth);
@@ -155,18 +155,25 @@ export default function PlayersPage() {
       ? Math.round(playersWithAge.reduce((sum, p) => sum + calculateAge(p.dateOfBirth), 0) / playersWithAge.length)
       : 0;
 
-    const contractDistribution = {
-      free_agent: playersData.filter(p => (p.contractStatus || 'free_agent') === 'free_agent').length,
-      normal: playersData.filter(p => p.contractStatus === 'normal').length,
-      seasonal: playersData.filter(p => p.contractStatus === 'seasonal').length
-    };
+    const activeContracts = playersData.filter(p => 
+      p.contractStatus === 'active' || p.currentTeam
+    ).length;
+
+    console.log('Player stats calculation (FIXED):', {
+      totalPlayers,
+      totalGoals,
+      totalAssists,
+      avgAge,
+      activeContracts
+    });
 
     setPlayerStats({
       totalPlayers,
       totalGoals,
       totalAssists,
       avgAge,
-      contractDistribution
+      activeContracts,
+      freeAgents: totalPlayers - activeContracts
     });
   };
 
@@ -234,28 +241,28 @@ export default function PlayersPage() {
     setPlayers(filtered);
   };
 
-  // Get top performers - FIXED
+  // FIXED: Get top performers using consistent normalization
   const getTopPerformers = () => {
     const topScorers = [...allPlayers]
+      .filter(p => (p.careerStats?.goals || 0) > 0)
+      .sort((a, b) => (b.careerStats?.goals || 0) - (a.careerStats?.goals || 0))
+      .slice(0, 3)
       .map(player => ({
         ...player,
         normalizedStats: getNormalizedStats(player)
-      }))
-      .filter(p => p.normalizedStats.goals > 0)
-      .sort((a, b) => b.normalizedStats.goals - a.normalizedStats.goals)
-      .slice(0, 3);
+      }));
       
     const topAssisters = [...allPlayers]
+      .filter(p => (p.careerStats?.assists || 0) > 0)
+      .sort((a, b) => (b.careerStats?.assists || 0) - (a.careerStats?.assists || 0))
+      .slice(0, 3)
       .map(player => ({
         ...player,
         normalizedStats: getNormalizedStats(player)
-      }))
-      .filter(p => p.normalizedStats.assists > 0)
-      .sort((a, b) => b.normalizedStats.assists - a.normalizedStats.assists)
-      .slice(0, 3);
+      }));
       
-    console.log('Top scorers (players page):', topScorers.map(p => `${p.name}: ${p.normalizedStats.goals} goals`));
-    console.log('Top assisters (players page):', topAssisters.map(p => `${p.name}: ${p.normalizedStats.assists} assists`));
+    console.log('Top scorers (players page - FIXED):', topScorers.map(p => `${p.name}: ${p.normalizedStats.goals} goals`));
+    console.log('Top assisters (players page - FIXED):', topAssisters.map(p => `${p.name}: ${p.normalizedStats.assists} assists`));
       
     return { topScorers, topAssisters };
   };
@@ -546,7 +553,7 @@ export default function PlayersPage() {
         )}
       </div>
 
-      {/* Top Performers Section - UPDATED */}
+      {/* Top Performers Section - FIXED */}
       {(topScorers.length > 0 || topAssisters.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Top Scorers */}
@@ -617,7 +624,7 @@ export default function PlayersPage() {
         </div>
       )}
 
-      {/* Players Display - UPDATED */}
+      {/* Players Display - UPDATED with FIXED stats */}
       {viewMode === 'grid' ? (
         /* Grid View */
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -718,7 +725,7 @@ export default function PlayersPage() {
                       )}
                     </div>
 
-                    {/* Player Stats - UPDATED */}
+                    {/* Player Stats - FIXED */}
                     <div className="pt-4 border-t border-gray-200">
                       <div className="grid grid-cols-3 gap-2 text-center">
                         <div>
@@ -757,7 +764,7 @@ export default function PlayersPage() {
           })}
         </div>
       ) : (
-        /* List View - UPDATED */
+        /* List View - FIXED stats */
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <div className="divide-y divide-gray-200">
             {players.map((player) => {
@@ -823,7 +830,7 @@ export default function PlayersPage() {
                       </div>
                     </div>
 
-                    {/* Stats and Status - UPDATED */}
+                    {/* Stats and Status - FIXED */}
                     <div className="flex items-center space-x-8">
                       <div className="text-center">
                         <div className="text-lg font-bold text-green-600">{stats.goals}</div>
@@ -901,7 +908,7 @@ export default function PlayersPage() {
         </div>
       )}
 
-      {/* Enhanced Statistics Summary - UPDATED */}
+      {/* Enhanced Statistics Summary - FIXED */}
       {players.length > 0 && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Contract Distribution */}
@@ -910,15 +917,11 @@ export default function PlayersPage() {
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-gray-600">Free Agents</span>
-                <span className="font-bold text-green-600">{playerStats.contractDistribution.free_agent}</span>
+                <span className="font-bold text-green-600">{playerStats.freeAgents}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-gray-600">Normal Contracts</span>
-                <span className="font-bold text-blue-600">{playerStats.contractDistribution.normal}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Seasonal Contracts</span>
-                <span className="font-bold text-purple-600">{playerStats.contractDistribution.seasonal}</span>
+                <span className="text-gray-600">Active Contracts</span>
+                <span className="font-bold text-blue-600">{playerStats.activeContracts}</span>
               </div>
             </div>
           </div>
@@ -948,7 +951,7 @@ export default function PlayersPage() {
             </div>
           </div>
 
-          {/* Market Value - UPDATED */}
+          {/* Market Value - FIXED */}
           <div className="bg-white rounded-xl shadow-lg p-6">
             <h3 className="text-lg font-semibold mb-4">Market Information</h3>
             <div className="space-y-3">
