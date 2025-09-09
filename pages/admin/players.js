@@ -1,10 +1,10 @@
 // ===========================================
-// FILE: pages/admin/players.js (UPDATED WITH CONTRACT MANAGEMENT)
+// FILE: pages/admin/players.js (UPDATED WITH MANDATORY ID CARD)
 // ===========================================
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/router';
-import { Plus, Edit, Trash2, User, FileText, Clock } from 'lucide-react';
+import { Plus, Edit, Trash2, User, CreditCard, AlertTriangle, FileText, Users as UsersIcon } from 'lucide-react';
 import Modal from '../../components/ui/Modal';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import toast from 'react-hot-toast';
@@ -33,12 +33,13 @@ export default function AdminPlayers() {
   const [seasons, setSeasons] = useState([]);
   const [selectedSeason, setSelectedSeason] = useState('');
   const [selectedTeam, setSelectedTeam] = useState('');
-  const [contractFilter, setContractFilter] = useState(''); // NEW: Contract status filter
+  const [contractFilter, setContractFilter] = useState(''); // NEW: Contract filter
+  const [searchQuery, setSearchQuery] = useState(''); // NEW: Search
   const [isLoading, setIsLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [showContractModal, setShowContractModal] = useState(false); // NEW: Contract modal
+  const [showContractModal, setShowContractModal] = useState(false); // NEW: Contract management
   const [editingPlayer, setEditingPlayer] = useState(null);
-  const [contractingPlayer, setContractingPlayer] = useState(null); // NEW: Player for contract
+  const [contractingPlayer, setContractingPlayer] = useState(null); // NEW: Contract management
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -61,7 +62,7 @@ export default function AdminPlayers() {
       fetchTeams();
       fetchPlayers();
     }
-  }, [selectedSeason, selectedTeam, contractFilter]);
+  }, [selectedSeason, selectedTeam, contractFilter, searchQuery]);
 
   const fetchSeasons = async () => {
     try {
@@ -124,6 +125,7 @@ export default function AdminPlayers() {
       let url = `/api/admin/players?seasonId=${selectedSeason}`;
       if (selectedTeam) url += `&teamId=${selectedTeam}`;
       if (contractFilter) url += `&contractStatus=${contractFilter}`; // NEW: Contract filter
+      if (searchQuery.trim()) url += `&search=${encodeURIComponent(searchQuery.trim())}`; // NEW: Search
       
       const response = await fetch(url);
       
@@ -166,7 +168,7 @@ export default function AdminPlayers() {
   };
 
   const handleDeletePlayer = async (playerId) => {
-    if (!confirm('Are you sure you want to delete this player?')) return;
+    if (!confirm('Are you sure you want to delete this player? This action cannot be undone.')) return;
 
     try {
       const response = await fetch(`/api/admin/players?id=${playerId}`, {
@@ -186,22 +188,33 @@ export default function AdminPlayers() {
     }
   };
 
-  // NEW: Contract status helper functions
-  const getContractStatusColor = (contractStatus) => {
+  // NEW: Contract status helpers
+  const getContractStatusBadge = (contractStatus) => {
     switch (contractStatus) {
-      case 'normal': return 'bg-blue-100 text-blue-800';
-      case 'seasonal': return 'bg-purple-100 text-purple-800';
-      case 'free_agent': return 'bg-green-100 text-green-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getContractStatusIcon = (contractStatus) => {
-    switch (contractStatus) {
-      case 'normal': return <FileText className="w-4 h-4" />;
-      case 'seasonal': return <Clock className="w-4 h-4" />;
-      case 'free_agent': return <User className="w-4 h-4" />;
-      default: return <FileText className="w-4 h-4" />;
+      case 'normal':
+        return (
+          <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+            Normal Contract
+          </span>
+        );
+      case 'seasonal':
+        return (
+          <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">
+            Seasonal Contract
+          </span>
+        );
+      case 'free_agent':
+        return (
+          <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+            Free Agent
+          </span>
+        );
+      default:
+        return (
+          <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-full">
+            Unknown
+          </span>
+        );
     }
   };
 
@@ -215,63 +228,107 @@ export default function AdminPlayers() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Manage Players</h1>
-        <div className="flex space-x-4">
+        <button onClick={handleAddPlayer} className="btn btn-primary flex items-center">
+          <Plus className="w-4 h-4 mr-2" />
+          Add Player
+        </button>
+      </div>
+
+      {/* Enhanced Filters */}
+      <div className="card">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+          {/* Search Input */}
+          <div className="lg:col-span-2">
+            <label className="form-label text-sm">Search Players</label>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, ID card, or email..."
+              className="form-input"
+            />
+          </div>
+
+          {/* Season Filter */}
+          <div>
+            <label className="form-label text-sm">Season</label>
+            <select
+              value={selectedSeason}
+              onChange={(e) => setSelectedSeason(e.target.value)}
+              className="form-input w-full"
+            >
+              {Array.isArray(seasons) && seasons.map(season => (
+                <option key={season._id} value={season._id}>
+                  {season.name} {season.isActive && '(Active)'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Team Filter */}
+          <div>
+            <label className="form-label text-sm">Team</label>
+            <select
+              value={selectedTeam}
+              onChange={(e) => setSelectedTeam(e.target.value)}
+              className="form-input w-full"
+            >
+              <option value="">All Teams</option>
+              <option value="free-agents">Free Agents</option>
+              {Array.isArray(teams) && teams.map(team => (
+                <option key={team._id} value={team._id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* NEW: Contract Status Filter */}
-          <select
-            value={contractFilter}
-            onChange={(e) => setContractFilter(e.target.value)}
-            className="form-input w-48"
-          >
-            <option value="">All Contract Types</option>
-            <option value="free_agent">Free Agents</option>
-            <option value="normal">Normal Contracts</option>
-            <option value="seasonal">Seasonal Contracts</option>
-          </select>
-          
-          <select
-            value={selectedTeam}
-            onChange={(e) => setSelectedTeam(e.target.value)}
-            className="form-input w-48"
-          >
-            <option value="">All Teams</option>
-            {Array.isArray(teams) && teams.map(team => (
-              <option key={team._id} value={team._id}>
-                {team.name}
-              </option>
-            ))}
-          </select>
-          
-          <select
-            value={selectedSeason}
-            onChange={(e) => setSelectedSeason(e.target.value)}
-            className="form-input w-48"
-          >
-            {Array.isArray(seasons) && seasons.map(season => (
-              <option key={season._id} value={season._id}>
-                {season.name} {season.isActive && '(Active)'}
-              </option>
-            ))}
-          </select>
-          
-          <button onClick={handleAddPlayer} className="btn btn-primary flex items-center">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Player
-          </button>
+          <div>
+            <label className="form-label text-sm">Contract Status</label>
+            <select
+              value={contractFilter}
+              onChange={(e) => setContractFilter(e.target.value)}
+              className="form-input w-full"
+            >
+              <option value="">All Contract Types</option>
+              <option value="free_agent">Free Agents</option>
+              <option value="normal">Normal Contracts</option>
+              <option value="seasonal">Seasonal Contracts</option>
+            </select>
+          </div>
+
+          {/* Clear Filters */}
+          <div className="flex items-end">
+            <button
+              onClick={() => {
+                setSelectedTeam('');
+                setContractFilter('');
+                setSearchQuery('');
+              }}
+              className="btn-secondary w-full text-sm"
+            >
+              Clear Filters
+            </button>
+          </div>
         </div>
       </div>
 
+      {/* Players Table */}
       <div className="card">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Photo</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Player Info</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID Card</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Jersey #</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Team</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contract</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contract Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Age</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Goals</th>
@@ -307,6 +364,23 @@ export default function AdminPlayers() {
                     {player.nationality && (
                       <div className="text-sm text-gray-500">{player.nationality}</div>
                     )}
+                    {player.email && (
+                      <div className="text-xs text-gray-400">{player.email}</div>
+                    )}
+                  </td>
+                  {/* NEW: ID Card Column */}
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {player.idCardNumber ? (
+                      <div className="flex items-center space-x-1">
+                        <CreditCard className="w-3 h-3 text-green-600" />
+                        <span className="text-xs font-mono text-gray-700">{player.idCardNumber}</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-1">
+                        <AlertTriangle className="w-3 h-3 text-red-500" />
+                        <span className="text-xs text-red-600">Missing</span>
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm text-gray-900">
@@ -320,21 +394,9 @@ export default function AdminPlayers() {
                   </td>
                   {/* NEW: Contract Status Column */}
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full items-center space-x-1 ${
-                        getContractStatusColor(player.contractStatus)
-                      }`}>
-                        {getContractStatusIcon(player.contractStatus)}
-                        <span className="ml-1">
-                          {player.contractStatus === 'free_agent' ? 'Free Agent' :
-                           player.contractStatus === 'normal' ? 'Normal' :
-                           player.contractStatus === 'seasonal' ? 'Seasonal' : 
-                           'Unknown'}
-                        </span>
-                      </span>
-                    </div>
+                    {getContractStatusBadge(player.contractStatus || 'free_agent')}
                     {player.currentContract?.contractValue > 0 && (
-                      <div className="text-xs text-green-600 font-medium">
+                      <div className="text-xs text-green-600 mt-1">
                         MVR {player.currentContract.contractValue.toLocaleString()}
                       </div>
                     )}
@@ -360,26 +422,29 @@ export default function AdminPlayers() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {/* NEW: Contract Management Button */}
-                    <button
-                      onClick={() => handleManageContract(player)}
-                      className="text-purple-600 hover:text-purple-900 mr-3"
-                      title="Manage Contract"
-                    >
-                      <FileText className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleEditPlayer(player)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => handleDeletePlayer(player._id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => handleEditPlayer(player)}
+                        className="text-blue-600 hover:text-blue-900"
+                        title="Edit Player"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleManageContract(player)}
+                        className="text-purple-600 hover:text-purple-900"
+                        title="Manage Contract"
+                      >
+                        <FileText className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeletePlayer(player._id)}
+                        className="text-red-600 hover:text-red-900"
+                        title="Delete Player"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -389,14 +454,56 @@ export default function AdminPlayers() {
 
         {(!Array.isArray(players) || players.length === 0) && (
           <div className="text-center py-12">
-            <User className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <UsersIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No players found</h3>
-            <p className="text-gray-500">Get started by registering your first player.</p>
+            <p className="text-gray-500 mb-4">
+              {searchQuery ? `No players match "${searchQuery}" with the selected filters.` : 'Get started by registering your first player.'}
+            </p>
+            {(searchQuery || selectedTeam || contractFilter) && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedTeam('');
+                  setContractFilter('');
+                }}
+                className="btn-secondary"
+              >
+                Clear All Filters
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      {/* Player Form Modal */}
+      {/* Statistics Summary */}
+      {Array.isArray(players) && players.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="card text-center">
+            <div className="text-2xl font-bold text-blue-600">{players.length}</div>
+            <div className="text-gray-600 text-sm">Total Players</div>
+          </div>
+          <div className="card text-center">
+            <div className="text-2xl font-bold text-green-600">
+              {players.filter(p => p.idCardNumber).length}
+            </div>
+            <div className="text-gray-600 text-sm">With ID Cards</div>
+          </div>
+          <div className="card text-center">
+            <div className="text-2xl font-bold text-purple-600">
+              {players.filter(p => (p.contractStatus || 'free_agent') === 'free_agent').length}
+            </div>
+            <div className="text-gray-600 text-sm">Free Agents</div>
+          </div>
+          <div className="card text-center">
+            <div className="text-2xl font-bold text-yellow-600">
+              {players.reduce((sum, p) => sum + (p.careerStats?.goals || 0), 0)}
+            </div>
+            <div className="text-gray-600 text-sm">Total Goals</div>
+          </div>
+        </div>
+      )}
+
+      {/* Player Registration Modal */}
       <Modal
         isOpen={showModal}
         onClose={() => setShowModal(false)}
@@ -420,30 +527,31 @@ export default function AdminPlayers() {
       <Modal
         isOpen={showContractModal}
         onClose={() => setShowContractModal(false)}
-        title={`Contract Management - ${contractingPlayer?.name}`}
+        title={`Manage Contract - ${contractingPlayer?.name}`}
         size="lg"
       >
-        <ContractForm
-          player={contractingPlayer}
-          teams={teams}
-          seasons={seasons}
-          selectedSeason={selectedSeason}
-          onClose={() => setShowContractModal(false)}
-          onSuccess={() => {
-            setShowContractModal(false);
-            fetchPlayers();
-          }}
-        />
+        {contractingPlayer && (
+          <ContractForm
+            player={contractingPlayer}
+            teams={teams}
+            seasons={seasons}
+            onClose={() => setShowContractModal(false)}
+            onSuccess={() => {
+              setShowContractModal(false);
+              fetchPlayers();
+            }}
+          />
+        )}
       </Modal>
     </div>
   );
 }
 
-// Updated Player Form Component
+// UPDATED Player Form Component with MANDATORY ID Card
 function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
     name: player?.name || '',
-    idCardNumber: player?.idCardNumber || '',
+    idCardNumber: player?.idCardNumber || '', // NOW REQUIRED
     email: player?.email || '',
     phone: player?.phone || '',
     dateOfBirth: player?.dateOfBirth ? player.dateOfBirth.split('T')[0] : '',
@@ -467,12 +575,56 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
   const [photoFile, setPhotoFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [idCardError, setIdCardError] = useState('');
+
+  // NEW: Validate ID card number
+  const validateIdCard = (value) => {
+    if (!value || value.trim() === '') {
+      return 'ID card number is required';
+    }
+
+    const cleaned = value.trim().replace(/\s+/g, '');
+    
+    if (cleaned.length < 5) {
+      return 'ID card number must be at least 5 characters long';
+    }
+
+    if (cleaned.length > 20) {
+      return 'ID card number cannot exceed 20 characters';
+    }
+
+    if (!/^[A-Za-z0-9\-\/]+$/.test(cleaned)) {
+      return 'ID card number can only contain letters, numbers, hyphens, and slashes';
+    }
+
+    return '';
+  };
+
+  const handleIdCardChange = (e) => {
+    const value = e.target.value;
+    setFormData({ ...formData, idCardNumber: value });
+    
+    const error = validateIdCard(value);
+    setIdCardError(error);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // MANDATORY validations
     if (!formData.name.trim()) {
       toast.error('Player name is required');
+      return;
+    }
+
+    if (!formData.idCardNumber.trim()) {
+      toast.error('ID card number is required');
+      return;
+    }
+
+    const idError = validateIdCard(formData.idCardNumber);
+    if (idError) {
+      toast.error(idError);
       return;
     }
     
@@ -524,7 +676,12 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
         onSuccess();
       } else {
         const data = await response.json();
-        toast.error(data.message || 'Failed to save player');
+        if (data.message && data.message.includes('ID card number')) {
+          toast.error(data.message);
+          setIdCardError(data.message);
+        } else {
+          toast.error(data.message || 'Failed to save player');
+        }
       }
     } catch (error) {
       console.error('Player form error:', error);
@@ -537,35 +694,47 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Basic Information */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="form-group">
-          <label className="form-label">Full Name *</label>
-          <input
-            type="text"
-            className="form-input"
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            required
-            placeholder="Enter player's full name"
-          />
-        </div>
+      {/* MANDATORY Information Section */}
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <h3 className="text-lg font-semibold text-red-900 mb-4 flex items-center">
+          <AlertTriangle className="w-5 h-5 mr-2" />
+          Required Information
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="form-group">
+            <label className="form-label text-red-700">Full Name *</label>
+            <input
+              type="text"
+              className="form-input border-red-300 focus:border-red-500"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              required
+              placeholder="Enter player's full name"
+            />
+          </div>
 
-        <div className="form-group">
-          <label className="form-label">ID Card Number</label>
-          <input
-            type="text"
-            className="form-input"
-            value={formData.idCardNumber}
-            onChange={(e) => setFormData({ ...formData, idCardNumber: e.target.value })}
-            placeholder="National ID or passport number"
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Private identifier - not shown to public
-          </p>
+          <div className="form-group">
+            <label className="form-label text-red-700">ID Card Number *</label>
+            <input
+              type="text"
+              className={`form-input ${idCardError ? 'border-red-500' : 'border-red-300'} focus:border-red-500`}
+              value={formData.idCardNumber}
+              onChange={handleIdCardChange}
+              required
+              placeholder="National ID, Passport, or Document Number"
+              maxLength="20"
+            />
+            {idCardError && (
+              <p className="text-red-600 text-sm mt-1">{idCardError}</p>
+            )}
+            <p className="text-xs text-red-600 mt-1">
+              Must be unique. Used to prevent duplicate registrations.
+            </p>
+          </div>
         </div>
       </div>
 
+      {/* Basic Information */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="form-group">
           <label className="form-label">Jersey Number</label>
@@ -578,13 +747,10 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
             onChange={(e) => setFormData({ ...formData, jerseyNumber: e.target.value })}
             placeholder="1-99 (optional)"
           />
-          <p className="text-xs text-gray-500 mt-1">
-            Leave blank if no jersey assigned yet
-          </p>
         </div>
 
         <div className="form-group">
-          <label className="form-label">Role (Optional)</label>
+          <label className="form-label">Position (Optional)</label>
           <select
             className="form-input"
             value={formData.position}
@@ -606,9 +772,6 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
           onChange={(e) => setPhotoFile(e.target.files[0])}
           className="form-input"
         />
-        {uploadingPhoto && (
-          <p className="text-blue-600 text-sm mt-1">Uploading photo...</p>
-        )}
         {player?.photo && (
           <div className="mt-2">
             <p className="text-sm text-gray-600">Current photo:</p>
@@ -725,9 +888,6 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
             </option>
           ))}
         </select>
-        <p className="text-xs text-gray-500 mt-1">
-          Players can be registered without a team assignment
-        </p>
       </div>
 
       {/* Emergency Contact */}
@@ -804,64 +964,40 @@ function PlayerForm({ player, teams, seasons, selectedSeason, onClose, onSuccess
         </button>
         <button 
           type="submit" 
-          disabled={isSubmitting || uploadingPhoto} 
+          disabled={isSubmitting || uploadingPhoto || !!idCardError || !formData.name.trim() || !formData.idCardNumber.trim()}
           className="btn btn-primary"
         >
-          {isSubmitting ? 'Saving...' : uploadingPhoto ? 'Uploading...' : player ? 'Update Player' : 'Register Player'}
+          {uploadingPhoto ? 'Uploading...' : isSubmitting ? 'Saving...' : player ? 'Update Player' : 'Register Player'}
         </button>
       </div>
     </form>
   );
 }
 
-// NEW: Contract Management Form Component
-function ContractForm({ player, teams, seasons, selectedSeason, onClose, onSuccess }) {
+// NEW: Contract Management Form
+function ContractForm({ player, teams, seasons, onClose, onSuccess }) {
   const [formData, setFormData] = useState({
-    team: player?.currentContract?.team?._id || player?.currentTeam?._id || '',
-    season: player?.currentContract?.season?._id || selectedSeason || '',
-    contractType: player?.currentContract?.contractType || 'normal',
-    startDate: player?.currentContract?.startDate ? 
-      new Date(player.currentContract.startDate).toISOString().split('T')[0] : 
-      new Date().toISOString().split('T')[0],
-    endDate: player?.currentContract?.endDate ? 
-      new Date(player.currentContract.endDate).toISOString().split('T')[0] : '',
-    contractValue: player?.currentContract?.contractValue || 0,
-    notes: player?.currentContract?.notes || ''
+    playerId: player._id,
+    team: player.currentContract?.team?._id || '',
+    season: seasons.find(s => s.isActive)?._id || '',
+    contractType: player.contractStatus === 'free_agent' ? 'normal' : player.contractStatus,
+    contractValue: player.currentContract?.contractValue || 0,
+    startDate: player.currentContract?.startDate ? new Date(player.currentContract.startDate).toISOString().split('T')[0] : '',
+    endDate: player.currentContract?.endDate ? new Date(player.currentContract.endDate).toISOString().split('T')[0] : '',
+    notes: player.currentContract?.notes || ''
   });
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!formData.team) {
-      toast.error('Team is required for contract');
-      return;
-    }
-    
-    if (!formData.season) {
-      toast.error('Season is required for contract');
-      return;
-    }
-    
     setIsSubmitting(true);
 
     try {
-      const contractData = {
-        playerId: player._id,
-        team: formData.team,
-        season: formData.season,
-        contractType: formData.contractType,
-        startDate: formData.startDate,
-        endDate: formData.endDate || null,
-        contractValue: parseFloat(formData.contractValue) || 0,
-        notes: formData.notes
-      };
-
       const response = await fetch('/api/admin/contracts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contractData),
+        body: JSON.stringify(formData),
       });
 
       if (response.ok) {
@@ -879,162 +1015,166 @@ function ContractForm({ player, teams, seasons, selectedSeason, onClose, onSucce
     }
   };
 
+  const handleRelease = async () => {
+    if (!confirm('Are you sure you want to release this player to free agency?')) return;
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('/api/admin/contracts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ playerId: player._id, team: null }),
+      });
+
+      if (response.ok) {
+        toast.success('Player released to free agency');
+        onSuccess();
+      } else {
+        const data = await response.json();
+        toast.error(data.message || 'Failed to release player');
+      }
+    } catch (error) {
+      console.error('Release error:', error);
+      toast.error('Failed to release player');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Current Contract Info */}
-      {player?.currentContract && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h3 className="text-lg font-semibold text-blue-900 mb-2">Current Contract</h3>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="text-blue-700 font-medium">Type:</span> 
-              <span className="ml-2 capitalize">{player.currentContract.contractType}</span>
-            </div>
-            <div>
-              <span className="text-blue-700 font-medium">Value:</span> 
-              <span className="ml-2">MVR {(player.currentContract.contractValue || 0).toLocaleString()}</span>
-            </div>
-            <div>
-              <span className="text-blue-700 font-medium">Start:</span> 
-              <span className="ml-2">
-                {player.currentContract.startDate ? 
-                  new Date(player.currentContract.startDate).toLocaleDateString() : 
-                  'N/A'
-                }
-              </span>
-            </div>
-            <div>
-              <span className="text-blue-700 font-medium">End:</span> 
-              <span className="ml-2">
-                {player.currentContract.endDate ? 
-                  new Date(player.currentContract.endDate).toLocaleDateString() : 
-                  'Open-ended'
-                }
-              </span>
-            </div>
+    <div className="space-y-4">
+      {/* Current Status */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h4 className="font-semibold text-blue-900 mb-2">Current Status</h4>
+        <div className="text-sm text-blue-800">
+          <p><strong>Contract Status:</strong> {player.contractStatus?.replace('_', ' ') || 'Free Agent'}</p>
+          <p><strong>Current Team:</strong> {player.currentTeam?.name || 'None'}</p>
+          {player.currentContract?.contractValue > 0 && (
+            <p><strong>Contract Value:</strong> MVR {player.currentContract.contractValue.toLocaleString()}</p>
+          )}
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="form-group">
+            <label className="form-label">Team *</label>
+            <select
+              className="form-input"
+              value={formData.team}
+              onChange={(e) => setFormData({ ...formData, team: e.target.value })}
+              required
+            >
+              <option value="">Select Team</option>
+              {teams.map(team => (
+                <option key={team._id} value={team._id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Season *</label>
+            <select
+              className="form-input"
+              value={formData.season}
+              onChange={(e) => setFormData({ ...formData, season: e.target.value })}
+              required
+            >
+              {seasons.map(season => (
+                <option key={season._id} value={season._id}>
+                  {season.name} {season.isActive && '(Active)'}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
-      )}
 
-      {/* Contract Form */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="form-group">
-          <label className="form-label">Team *</label>
-          <select
-            className="form-input"
-            value={formData.team}
-            onChange={(e) => setFormData({ ...formData, team: e.target.value })}
-            required
-          >
-            <option value="">Select Team</option>
-            {Array.isArray(teams) && teams.map(team => (
-              <option key={team._id} value={team._id}>
-                {team.name}
-              </option>
-            ))}
-          </select>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="form-group">
+            <label className="form-label">Contract Type *</label>
+            <select
+              className="form-input"
+              value={formData.contractType}
+              onChange={(e) => setFormData({ ...formData, contractType: e.target.value })}
+              required
+            >
+              <option value="normal">Normal Contract</option>
+              <option value="seasonal">Seasonal Contract</option>
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Contract Value (MVR)</label>
+            <input
+              type="number"
+              min="0"
+              className="form-input"
+              value={formData.contractValue}
+              onChange={(e) => setFormData({ ...formData, contractValue: e.target.value })}
+              placeholder="0"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="form-group">
+            <label className="form-label">Start Date</label>
+            <input
+              type="date"
+              className="form-input"
+              value={formData.startDate}
+              onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+            />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">End Date (Optional)</label>
+            <input
+              type="date"
+              className="form-input"
+              value={formData.endDate}
+              onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+            />
+          </div>
         </div>
 
         <div className="form-group">
-          <label className="form-label">Season *</label>
-          <select
+          <label className="form-label">Notes</label>
+          <textarea
             className="form-input"
-            value={formData.season}
-            onChange={(e) => setFormData({ ...formData, season: e.target.value })}
-            required
-          >
-            <option value="">Select Season</option>
-            {Array.isArray(seasons) && seasons.map(season => (
-              <option key={season._id} value={season._id}>
-                {season.name} {season.isActive && '(Active)'}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="form-group">
-        <label className="form-label">Contract Type</label>
-        <select
-          className="form-input"
-          value={formData.contractType}
-          onChange={(e) => setFormData({ ...formData, contractType: e.target.value })}
-        >
-          <option value="normal">Normal Contract (Mid-season transfers allowed)</option>
-          <option value="seasonal">Seasonal Contract (Transfers only at season end)</option>
-        </select>
-        <div className="mt-2 text-sm text-gray-600">
-          {formData.contractType === 'normal' && (
-            <p>✓ Player can be transferred at any time during the season</p>
-          )}
-          {formData.contractType === 'seasonal' && (
-            <p>⚠️ Player can only be transferred when the season ends</p>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="form-group">
-          <label className="form-label">Start Date</label>
-          <input
-            type="date"
-            className="form-input"
-            value={formData.startDate}
-            onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+            rows="3"
+            value={formData.notes}
+            onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+            placeholder="Contract notes..."
           />
         </div>
 
-        <div className="form-group">
-          <label className="form-label">End Date (Optional)</label>
-          <input
-            type="date"
-            className="form-input"
-            value={formData.endDate}
-            onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-          />
-          <p className="text-xs text-gray-500 mt-1">
-            Leave blank for open-ended contract
-          </p>
+        <div className="flex justify-between pt-4 border-t">
+          <button 
+            type="button" 
+            onClick={handleRelease}
+            disabled={isSubmitting}
+            className="btn bg-red-600 text-white hover:bg-red-700"
+          >
+            Release to Free Agency
+          </button>
+          
+          <div className="space-x-4">
+            <button type="button" onClick={onClose} className="btn btn-secondary">
+              Cancel
+            </button>
+            <button 
+              type="submit" 
+              disabled={isSubmitting}
+              className="btn btn-primary"
+            >
+              {isSubmitting ? 'Updating...' : 'Update Contract'}
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div className="form-group">
-        <label className="form-label">Contract Value (MVR)</label>
-        <input
-          type="number"
-          className="form-input"
-          value={formData.contractValue}
-          onChange={(e) => setFormData({ ...formData, contractValue: e.target.value })}
-          placeholder="0"
-          min="0"
-          step="0.01"
-        />
-      </div>
-
-      <div className="form-group">
-        <label className="form-label">Contract Notes</label>
-        <textarea
-          className="form-input"
-          rows="3"
-          value={formData.notes}
-          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-          placeholder="Any additional contract terms or notes..."
-        />
-      </div>
-
-      {/* Form Actions */}
-      <div className="flex justify-end space-x-4 pt-4 border-t">
-        <button type="button" onClick={onClose} className="btn btn-secondary">
-          Cancel
-        </button>
-        <button 
-          type="submit" 
-          disabled={isSubmitting} 
-          className="btn btn-primary"
-        >
-          {isSubmitting ? 'Updating Contract...' : 'Update Contract'}
-        </button>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 }
