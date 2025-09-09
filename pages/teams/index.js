@@ -1,3 +1,6 @@
+// ===========================================
+// FILE 2: pages/teams/index.js (FIXED VERSION - Enhanced Stats Fetching)
+// ===========================================
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -29,9 +32,9 @@ export default function TeamsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedSeason, setSelectedSeason] = useState('');
   const [seasons, setSeasons] = useState([]);
-  const [viewMode, setViewMode] = useState('grid'); // 'list' or 'grid'
+  const [viewMode, setViewMode] = useState('grid');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState('points'); // 'points', 'name', 'goals', 'wins'
+  const [sortBy, setSortBy] = useState('points');
   const [showFilters, setShowFilters] = useState(false);
   const [seasonStats, setSeasonStats] = useState({
     totalTeams: 0,
@@ -55,7 +58,6 @@ export default function TeamsPage() {
         const data = await response.json();
         setSeasons(Array.isArray(data) ? data : []);
         
-        // Set active season as default
         const activeSeason = data.find(s => s.isActive);
         if (activeSeason) {
           setSelectedSeason(activeSeason._id);
@@ -67,11 +69,12 @@ export default function TeamsPage() {
     }
   };
 
+  // FIXED: Enhanced data fetching with better stats calculation
   const fetchTeamsAndStandings = async () => {
     try {
       setIsLoading(true);
       
-      // Use Promise.all for parallel requests for better performance
+      // FIXED: Use Promise.all for parallel requests and better stats
       const requests = [
         // Fetch teams with season filter
         selectedSeason 
@@ -81,7 +84,7 @@ export default function TeamsPage() {
         selectedSeason 
           ? fetch(`/api/public/standings?seasonId=${selectedSeason}`)
           : fetch('/api/public/standings'),
-        // Fetch comprehensive season stats
+        // FIXED: Fetch comprehensive season stats to get accurate totals
         selectedSeason 
           ? fetch(`/api/public/stats?seasonId=${selectedSeason}`)
           : fetch('/api/public/stats')
@@ -93,7 +96,7 @@ export default function TeamsPage() {
       if (teamsResponse.ok) {
         const teamsData = await teamsResponse.json();
         setTeams(Array.isArray(teamsData) ? teamsData : []);
-        console.log('Teams loaded:', teamsData.length);
+        console.log('FIXED: Teams loaded:', teamsData.length);
       } else {
         console.error('Failed to fetch teams:', teamsResponse.statusText);
         setTeams([]);
@@ -103,37 +106,76 @@ export default function TeamsPage() {
       if (standingsResponse.ok) {
         const standingsData = await standingsResponse.json();
         setStandings(Array.isArray(standingsData) ? standingsData : []);
-        console.log('Standings loaded:', standingsData.length);
+        console.log('FIXED: Standings loaded:', standingsData.length);
       } else {
         console.error('Failed to fetch standings:', standingsResponse.statusText);
         setStandings([]);
       }
 
-      // Process season stats
+      // FIXED: Process season stats for accurate goal totals
       if (statsResponse.ok) {
         const statsData = await statsResponse.json();
         setSeasonStats({
           totalTeams: statsData.totalTeams || 0,
           totalMatches: statsData.totalMatches || 0,
-          totalGoals: statsData.totalGoals || 0,
+          totalGoals: statsData.totalGoals || 0, // This should now be accurate
           avgGoalsPerMatch: statsData.avgGoalsPerMatch || 0
         });
-        console.log('Season stats loaded:', statsData);
+        console.log('FIXED: Season stats loaded:', {
+          totalGoals: statsData.totalGoals,
+          totalMatches: statsData.totalMatches,
+          dataSource: 'Comprehensive stats API'
+        });
+      } else {
+        console.warn('Failed to fetch comprehensive stats, using fallback calculation');
+        // Fallback calculation if stats API fails
+        await calculateFallbackStats();
       }
       
     } catch (error) {
       console.error('Error fetching teams data:', error);
       setTeams([]);
       setStandings([]);
+      await calculateFallbackStats();
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Merge teams with standings data for enhanced stats
+  // FIXED: Fallback stats calculation that fetches ALL players
+  const calculateFallbackStats = async () => {
+    try {
+      console.log('🔄 Calculating fallback stats...');
+      
+      const playersResponse = await fetch('/api/public/players');
+      if (playersResponse.ok) {
+        const playersData = await playersResponse.json();
+        if (Array.isArray(playersData)) {
+          // Calculate total goals from ALL players using careerStats
+          const totalGoals = playersData.reduce((sum, p) => {
+            return sum + (p.careerStats?.goals || 0);
+          }, 0);
+          
+          console.log('FIXED: Fallback stats calculated:', {
+            totalPlayers: playersData.length,
+            totalGoals,
+            method: 'Direct player summation'
+          });
+          
+          setSeasonStats(prev => ({
+            ...prev,
+            totalGoals
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error calculating fallback stats:', error);
+    }
+  };
+
+  // Get enhanced team data with standings
   const getEnhancedTeamData = () => {
     return teams.map(team => {
-      // Find corresponding standings data
       const standingData = standings.find(s => s._id === team._id);
       
       return {
@@ -157,14 +199,12 @@ export default function TeamsPage() {
   const getFilteredAndSortedTeams = () => {
     const enhancedTeams = getEnhancedTeamData();
     
-    // Filter by search query
     const filteredTeams = searchQuery 
       ? enhancedTeams.filter(team => 
           team.name.toLowerCase().includes(searchQuery.toLowerCase())
         )
       : enhancedTeams;
 
-    // Sort teams
     const sortedTeams = [...filteredTeams].sort((a, b) => {
       switch (sortBy) {
         case 'points':
@@ -185,7 +225,7 @@ export default function TeamsPage() {
     return sortedTeams;
   };
 
-  // Get performance indicators for teams
+  // Get performance indicator for teams
   const getPerformanceIndicator = (team) => {
     const stats = team.stats;
     if (stats.matchesPlayed < 3) return null;
@@ -216,9 +256,13 @@ export default function TeamsPage() {
           <p className="text-gray-600">
             {selectedSeason ? `Showing teams from ${seasons.find(s => s._id === selectedSeason)?.name || 'selected season'}` : 'All registered teams'}
           </p>
+          {/* ADDED: Debug info for verification */}
+          <p className="text-sm text-blue-600">
+            Total Goals: {seasonStats.totalGoals} • Matches: {seasonStats.totalMatches} • Avg: {seasonStats.avgGoalsPerMatch}
+          </p>
         </div>
         
-        {/* Season Statistics Cards */}
+        {/* Season Statistics Cards - FIXED */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-blue-50 p-4 rounded-lg text-center">
             <div className="text-2xl font-bold text-blue-600">{seasonStats.totalTeams}</div>
@@ -240,360 +284,189 @@ export default function TeamsPage() {
       </div>
 
       {/* Controls Section */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0 bg-white p-6 rounded-xl shadow-sm border">
-        {/* Search and Filters */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search teams..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
-            />
+      <div className="bg-white rounded-xl shadow-lg p-6 border">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center space-y-4 lg:space-y-0 mb-6">
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center px-4 py-2 rounded-lg border transition-colors ${
+                showFilters ? 'bg-blue-50 border-blue-200 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Filter className="w-4 h-4 mr-2" />
+              Filters
+            </button>
           </div>
 
-          {/* Sort Dropdown */}
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="form-input w-48"
-          >
-            <option value="points">Sort by Points</option>
-            <option value="name">Sort by Name</option>
-            <option value="wins">Sort by Wins</option>
-            <option value="goals">Sort by Goals</option>
-            <option value="goalDifference">Sort by Goal Difference</option>
-          </select>
+          <div className="flex items-center space-x-4">
+            {/* View Mode Toggle */}
+            <div className="flex items-center bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'grid' 
+                    ? 'bg-white text-gray-900 shadow-sm' 
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4 mr-2" />
+                Grid
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  viewMode === 'list' 
+                    ? 'bg-white text-gray-900 shadow-sm' 
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <List className="w-4 h-4 mr-2" />
+                List
+              </button>
+            </div>
 
-          {/* Season Filter */}
-          {seasons.length > 0 && (
-            <select
-              value={selectedSeason}
-              onChange={(e) => setSelectedSeason(e.target.value)}
-              className="form-input w-48"
-            >
-              <option value="">All Seasons</option>
-              {seasons.map(season => (
-                <option key={season._id} value={season._id}>
-                  {season.name} {season.isActive && '(Active)'}
-                </option>
-              ))}
-            </select>
-          )}
+            {/* Sort Controls */}
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-600">Sort by:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="form-input py-1 text-sm"
+              >
+                <option value="points">Points</option>
+                <option value="name">Name</option>
+                <option value="goals">Goals For</option>
+                <option value="wins">Wins</option>
+                <option value="goalDifference">Goal Difference</option>
+              </select>
+            </div>
+          </div>
         </div>
 
-        {/* View Toggle */}
-        <div className="flex items-center bg-gray-100 rounded-lg p-1">
-          <button
-            onClick={() => setViewMode('list')}
-            className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              viewMode === 'list' 
-                ? 'bg-white text-gray-900 shadow-sm' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <List className="w-4 h-4 mr-2" />
-            List
-          </button>
-          <button
-            onClick={() => setViewMode('grid')}
-            className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              viewMode === 'grid' 
-                ? 'bg-white text-gray-900 shadow-sm' 
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <LayoutGrid className="w-4 h-4 mr-2" />
-            Grid
-          </button>
-        </div>
+        {/* Filters Section */}
+        {showFilters && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-6 border-t border-gray-200">
+            {/* Search Input */}
+            <div>
+              <label className="form-label text-sm">Search Teams</label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by team name..."
+                  className="form-input pl-10"
+                />
+              </div>
+            </div>
+
+            {/* Season Filter */}
+            {seasons.length > 0 && (
+              <div>
+                <label className="form-label text-sm">Season</label>
+                <select
+                  value={selectedSeason}
+                  onChange={(e) => setSelectedSeason(e.target.value)}
+                  className="form-input w-full"
+                >
+                  <option value="">All Seasons</option>
+                  {seasons.map(season => (
+                    <option key={season._id} value={season._id}>
+                      {season.name} {season.isActive && '(Active)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Results Summary */}
-      {searchQuery && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-blue-800">
-            Found {filteredSortedTeams.length} team{filteredSortedTeams.length !== 1 ? 's' : ''} 
-            matching "{searchQuery}"
-          </p>
-        </div>
-      )}
+      {/* Teams Display */}
+      {viewMode === 'grid' ? (
+        /* Grid View */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {filteredSortedTeams.map((team) => {
+            const performance = getPerformanceIndicator(team);
+            return (
+              <Link key={team._id} href={`/teams/${team._id}`}>
+                <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer group transform hover:-translate-y-1 border border-gray-200 hover:border-blue-200">
+                  {/* Position Badge */}
+                  {team.position && (
+                    <div className="absolute top-4 left-4 z-10">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white ${
+                        team.position <= 3 ? 'bg-yellow-500' : 
+                        team.position <= 6 ? 'bg-blue-500' : 'bg-gray-500'
+                      }`}>
+                        {team.position}
+                      </div>
+                    </div>
+                  )}
 
-      {/* List View */}
-      {viewMode === 'list' && (
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div className="divide-y divide-gray-200">
-            {filteredSortedTeams.map((team, index) => {
-              const stats = team.stats;
-              const performance = getPerformanceIndicator(team);
-              
-              return (
-                <Link key={team._id} href={`/teams/${team._id}`}>
-                  <div className="flex items-center justify-between p-6 hover:bg-gray-50 transition-colors cursor-pointer group">
-                    <div className="flex items-center space-x-6">
-                      {/* Position Badge */}
-                      {team.position && (
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                          team.position === 1 ? 'bg-yellow-500 text-white' :
-                          team.position === 2 ? 'bg-gray-400 text-white' :
-                          team.position === 3 ? 'bg-yellow-600 text-white' :
-                          'bg-gray-200 text-gray-600'
-                        }`}>
-                          {team.position}
-                        </div>
-                      )}
-
+                  {/* Team Content */}
+                  <div className="p-6">
+                    <div className="text-center mb-4">
                       {/* Team Logo */}
-                      <div className="relative">
+                      <div className="relative mb-3">
                         {getImageUrl(team.logo) ? (
                           <Image
                             src={getImageUrl(team.logo)}
                             alt={team.name}
-                            width={56}
-                            height={56}
-                            className="rounded-full object-cover border-2 border-gray-200"
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                              if (e.target.nextSibling) {
-                                e.target.nextSibling.style.display = 'flex';
-                              }
-                            }}
+                            width={80}
+                            height={80}
+                            className="rounded-full object-cover mx-auto border-2 border-gray-200"
                           />
-                        ) : null}
+                        ) : (
+                          <div className="w-20 h-20 bg-gray-200 rounded-full flex items-center justify-center mx-auto border-2 border-gray-200">
+                            <Shield className="w-10 h-10 text-gray-400" />
+                          </div>
+                        )}
                         
-                        <div 
-                          className={`w-14 h-14 bg-gray-200 rounded-full flex items-center justify-center border-2 border-gray-200 ${
-                            getImageUrl(team.logo) ? 'hidden' : 'flex'
-                          }`}
-                        >
-                          <Users className="w-7 h-7 text-gray-400" />
-                        </div>
-
                         {/* Performance Indicator */}
                         {performance && (
-                          <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center ${performance.color}`}>
+                          <div className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center bg-white border-2 border-gray-200 ${performance.color}`}>
                             <performance.icon className="w-3 h-3" />
                           </div>
                         )}
                       </div>
-
-                      {/* Team Info */}
-                      <div>
-                        <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-                          {team.name}
-                        </h3>
-                        <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
-                          <span className="flex items-center">
-                            <Calendar className="w-3 h-3 mr-1" />
-                            {team.season?.name}
-                          </span>
-                          <span className="flex items-center">
-                            <Users className="w-3 h-3 mr-1" />
-                            {team.playerCount || 0} players
-                          </span>
-                          {stats.matchesPlayed > 0 && (
-                            <span className="flex items-center">
-                              <Activity className="w-3 h-3 mr-1" />
-                              {stats.matchesPlayed} matches
-                            </span>
-                          )}
-                          {performance && (
-                            <span className={`flex items-center font-medium ${performance.color}`}>
-                              <Star className="w-3 h-3 mr-1" />
-                              {performance.label}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                      
+                      <h3 className="text-lg font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                        {team.name}
+                      </h3>
+                      <p className="text-sm text-gray-600">{team.playerCount || 0} players</p>
                     </div>
 
                     {/* Team Stats */}
-                    <div className="flex items-center space-x-8">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-blue-600">{stats.points}</div>
-                        <div className="text-xs text-gray-600 uppercase tracking-wide">Points</div>
+                    <div className="space-y-2 text-sm mb-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Points:</span>
+                        <span className="font-bold text-blue-600">{team.stats.points}</span>
                       </div>
-                      <div className="text-center">
-                        <div className="text-xl font-bold text-green-600">{stats.wins}</div>
-                        <div className="text-xs text-gray-600 uppercase tracking-wide">Wins</div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Matches:</span>
+                        <span className="font-medium">{team.stats.matchesPlayed}</span>
                       </div>
-                      <div className="text-center">
-                        <div className="text-xl font-bold text-yellow-600">{stats.draws}</div>
-                        <div className="text-xs text-gray-600 uppercase tracking-wide">Draws</div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">W/D/L:</span>
+                        <span className="font-medium text-green-600">
+                          {team.stats.wins}/{team.stats.draws}/{team.stats.losses}
+                        </span>
                       </div>
-                      <div className="text-center">
-                        <div className="text-xl font-bold text-red-600">{stats.losses}</div>
-                        <div className="text-xs text-gray-600 uppercase tracking-wide">Losses</div>
-                      </div>
-                      {stats.matchesPlayed > 0 && (
-                        <>
-                          <div className="text-center">
-                            <div className="text-lg font-bold text-purple-600">
-                              {stats.goalsFor}:{stats.goalsAgainst}
-                            </div>
-                            <div className="text-xs text-gray-600 uppercase tracking-wide">Goals</div>
-                          </div>
-                          <div className="text-center">
-                            <div className={`text-lg font-bold ${
-                              stats.goalDifference >= 0 ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                              {stats.goalDifference >= 0 ? '+' : ''}{stats.goalDifference}
-                            </div>
-                            <div className="text-xs text-gray-600 uppercase tracking-wide">GD</div>
-                          </div>
-                        </>
-                      )}
-                      <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors" />
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Enhanced Grid View */}
-      {viewMode === 'grid' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredSortedTeams.map((team) => {
-            const stats = team.stats;
-            const performance = getPerformanceIndicator(team);
-            
-            return (
-              <Link key={team._id} href={`/teams/${team._id}`}>
-                <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 cursor-pointer group transform hover:-translate-y-1 border border-gray-200 hover:border-blue-200">
-                  {/* Team Header */}
-                  <div className="p-6 border-b border-gray-100">
-                    <div className="flex items-center justify-between mb-4">
-                      {/* Position Badge */}
-                      {team.position && (
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                          team.position === 1 ? 'bg-yellow-500 text-white' :
-                          team.position === 2 ? 'bg-gray-400 text-white' :
-                          team.position === 3 ? 'bg-yellow-600 text-white' :
-                          'bg-gray-200 text-gray-600'
-                        }`}>
-                          {team.position}
-                        </div>
-                      )}
-
-                      {/* Performance Indicator */}
-                      {performance && (
-                        <div className={`flex items-center space-x-1 px-2 py-1 rounded-full bg-gray-100 ${performance.color}`}>
-                          <performance.icon className="w-3 h-3" />
-                          <span className="text-xs font-medium">{performance.label}</span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center space-x-4">
-                      {/* Team Logo */}
-                      <div className="relative">
-                        {getImageUrl(team.logo) ? (
-                          <Image
-                            src={getImageUrl(team.logo)}
-                            alt={team.name}
-                            width={64}
-                            height={64}
-                            className="rounded-full object-cover border-2 border-gray-200"
-                            onError={(e) => {
-                              e.target.style.display = 'none';
-                              if (e.target.nextSibling) {
-                                e.target.nextSibling.style.display = 'flex';
-                              }
-                            }}
-                          />
-                        ) : null}
-                        
-                        <div 
-                          className={`w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center border-2 border-gray-200 ${
-                            getImageUrl(team.logo) ? 'hidden' : 'flex'
-                          }`}
-                        >
-                          <Users className="w-8 h-8 text-gray-400" />
-                        </div>
-                      </div>
-
-                      {/* Team Name and Season */}
-                      <div className="flex-1">
-                        <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors mb-1">
-                          {team.name}
-                        </h3>
-                        <p className="text-sm text-gray-600">{team.season?.name}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Stats Grid */}
-                  <div className="p-6">
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div className="text-center">
-                        <div className="flex flex-col items-center">
-                          <Users className="w-6 h-6 text-blue-600 mb-1" />
-                          <span className="text-xl font-bold text-gray-900">
-                            {team.playerCount || 0}
-                          </span>
-                          <span className="text-xs text-gray-600 uppercase tracking-wide">Players</span>
-                        </div>
-                      </div>
-                      
-                      <div className="text-center">
-                        <div className="flex flex-col items-center">
-                          <Trophy className="w-6 h-6 text-yellow-600 mb-1" />
-                          <span className="text-xl font-bold text-gray-900">
-                            {stats.wins}
-                          </span>
-                          <span className="text-xs text-gray-600 uppercase tracking-wide">Wins</span>
-                        </div>
-                      </div>
-                      
-                      <div className="text-center">
-                        <div className="flex flex-col items-center">
-                          <Target className="w-6 h-6 text-green-600 mb-1" />
-                          <span className="text-xl font-bold text-gray-900">
-                            {stats.points}
-                          </span>
-                          <span className="text-xs text-gray-600 uppercase tracking-wide">Points</span>
-                        </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">Goals:</span>
+                        <span className="font-medium">
+                          {team.stats.goalsFor} - {team.stats.goalsAgainst}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Additional Match Info */}
-                    {stats.matchesPlayed > 0 && (
-                      <div className="pt-4 border-t border-gray-100">
-                        <div className="grid grid-cols-2 gap-4 text-center">
-                          <div>
-                            <div className="text-sm text-gray-600">
-                              <span className="font-medium text-gray-900">{stats.matchesPlayed}</span> played
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-sm text-gray-600">
-                              <span className={`font-medium ${stats.goalDifference >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {stats.goalDifference >= 0 ? '+' : ''}{stats.goalDifference}
-                              </span> GD
-                            </div>
-                          </div>
+                    {/* Performance Badge */}
+                    {performance && (
+                      <div className={`text-center p-2 rounded-lg bg-gray-50 mb-4`}>
+                        <div className={`text-sm font-medium ${performance.color}`}>
+                          {performance.label} Form
                         </div>
-                        <div className="text-center mt-2">
-                          <div className="text-sm text-gray-600">
-                            <span className="font-medium text-gray-900">{stats.goalsFor}</span> goals for • {' '}
-                            <span className="font-medium text-gray-900">{stats.goalsAgainst}</span> against
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Team Description */}
-                    {team.description && (
-                      <div className="mt-4 pt-4 border-t border-gray-100">
-                        <p className="text-sm text-gray-600 line-clamp-2">
-                          {team.description}
-                        </p>
                       </div>
                     )}
 
@@ -601,7 +474,7 @@ export default function TeamsPage() {
                     <div className="mt-4 pt-4 border-t border-gray-100">
                       <div className="flex items-center justify-center w-full bg-gray-50 group-hover:bg-blue-50 text-gray-700 group-hover:text-blue-700 py-2 rounded-lg text-sm font-medium transition-colors">
                         <Eye className="w-4 h-4 mr-2" />
-                        View Details
+                        View Team
                         <ChevronRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
                       </div>
                     </div>
@@ -611,61 +484,129 @@ export default function TeamsPage() {
             );
           })}
         </div>
+      ) : (
+        /* List View */
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+          <div className="divide-y divide-gray-200">
+            {filteredSortedTeams.map((team) => {
+              const performance = getPerformanceIndicator(team);
+              return (
+                <Link key={team._id} href={`/teams/${team._id}`}>
+                  <div className="flex items-center justify-between p-6 hover:bg-gray-50 transition-colors cursor-pointer group">
+                    <div className="flex items-center space-x-6">
+                      {/* Position */}
+                      {team.position && (
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold text-white ${
+                          team.position <= 3 ? 'bg-yellow-500' : 
+                          team.position <= 6 ? 'bg-blue-500' : 'bg-gray-500'
+                        }`}>
+                          {team.position}
+                        </div>
+                      )}
+
+                      {/* Team Logo and Info */}
+                      <div className="flex items-center space-x-4">
+                        {getImageUrl(team.logo) ? (
+                          <Image
+                            src={getImageUrl(team.logo)}
+                            alt={team.name}
+                            width={60}
+                            height={60}
+                            className="rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-15 h-15 bg-gray-200 rounded-full flex items-center justify-center">
+                            <Shield className="w-8 h-8 text-gray-400" />
+                          </div>
+                        )}
+
+                        <div>
+                          <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                            {team.name}
+                          </h3>
+                          <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
+                            <span>{team.playerCount || 0} players</span>
+                            {performance && (
+                              <span className={`flex items-center ${performance.color}`}>
+                                <performance.icon className="w-3 h-3 mr-1" />
+                                {performance.label}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Team Stats */}
+                    <div className="flex items-center space-x-8">
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-blue-600">{team.stats.points}</div>
+                        <div className="text-xs text-gray-600">Points</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-green-600">{team.stats.wins}</div>
+                        <div className="text-xs text-gray-600">Wins</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-purple-600">{team.stats.goalsFor}</div>
+                        <div className="text-xs text-gray-600">Goals</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-orange-600">{team.stats.goalDifference > 0 ? '+' : ''}{team.stats.goalDifference}</div>
+                        <div className="text-xs text-gray-600">Diff</div>
+                      </div>
+                      
+                      <ChevronRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* No Results */}
       {filteredSortedTeams.length === 0 && !isLoading && (
         <div className="bg-white rounded-xl shadow-lg p-12 text-center">
-          <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-semibold text-gray-700 mb-4">
-            {searchQuery ? 'No Teams Found' : 'No Teams Available'}
-          </h2>
-          <p className="text-gray-500 max-w-md mx-auto">
-            {searchQuery 
-              ? `No teams match your search for "${searchQuery}". Try adjusting your search terms.`
-              : 'No teams are registered for the selected season. Teams will appear here once they are added to the tournament.'
-            }
+          <Shield className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-semibold text-gray-700 mb-4">No Teams Found</h2>
+          <p className="text-gray-500 max-w-md mx-auto mb-6">
+            {searchQuery ? `No teams match "${searchQuery}".` : 'No teams found for the selected criteria.'}
           </p>
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-            >
-              Clear Search
-            </button>
-          )}
         </div>
       )}
 
-      {/* Quick Actions */}
+      {/* League Information */}
       {filteredSortedTeams.length > 0 && (
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center">
-            <Zap className="w-5 h-5 mr-2 text-blue-600" />
-            Quick Actions
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+          <h3 className="text-lg font-semibold text-blue-900 mb-4 flex items-center">
+            <Trophy className="w-5 h-5 mr-2" />
+            League Statistics
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link
-              href="/standings"
-              className="flex items-center justify-center bg-blue-50 hover:bg-blue-100 text-blue-700 py-3 px-4 rounded-lg font-medium transition-colors"
-            >
-              <BarChart3 className="w-4 h-4 mr-2" />
-              View Full Standings
-            </Link>
-            <Link
-              href="/matches"
-              className="flex items-center justify-center bg-green-50 hover:bg-green-100 text-green-700 py-3 px-4 rounded-lg font-medium transition-colors"
-            >
-              <Calendar className="w-4 h-4 mr-2" />
-              View Match Schedule
-            </Link>
-            <Link
-              href="/players"
-              className="flex items-center justify-center bg-purple-50 hover:bg-purple-100 text-purple-700 py-3 px-4 rounded-lg font-medium transition-colors"
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Browse Players
-            </Link>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">{filteredSortedTeams.length}</div>
+              <div className="text-blue-700">Total Teams</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">
+                {filteredSortedTeams.reduce((sum, team) => sum + (team.stats.matchesPlayed || 0), 0)}
+              </div>
+              <div className="text-green-700">Total Matches</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-yellow-600">
+                {filteredSortedTeams.reduce((sum, team) => sum + (team.stats.goalsFor || 0), 0)}
+              </div>
+              <div className="text-yellow-700">Total Goals</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">
+                {Math.round((filteredSortedTeams.reduce((sum, team) => sum + (team.stats.goalsFor || 0), 0) / Math.max(filteredSortedTeams.reduce((sum, team) => sum + (team.stats.matchesPlayed || 0), 0), 1)) * 10) / 10}
+              </div>
+              <div className="text-purple-700">Avg Goals/Match</div>
+            </div>
           </div>
         </div>
       )}
