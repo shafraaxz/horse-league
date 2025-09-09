@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { User, MapPin, Calendar, FileText, Clock, Shield, Users } from 'lucide-react';
+import { User, MapPin, Calendar, FileText, Clock, Shield, Users, Search } from 'lucide-react';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import { calculateAge } from '../../lib/utils';
 
@@ -27,7 +27,8 @@ export default function PlayersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedTeam, setSelectedTeam] = useState('');
   const [selectedPosition, setSelectedPosition] = useState('');
-  const [selectedContract, setSelectedContract] = useState(''); // NEW: Contract filter
+  const [selectedContract, setSelectedContract] = useState(''); // Contract filter
+  const [searchQuery, setSearchQuery] = useState(''); // Search functionality
   const [teams, setTeams] = useState([]);
   const [seasons, setSeasons] = useState([]);
   const [selectedSeason, setSelectedSeason] = useState('');
@@ -38,7 +39,7 @@ export default function PlayersPage() {
 
   useEffect(() => {
     fetchPlayers();
-  }, [selectedTeam, selectedPosition, selectedSeason, selectedContract]);
+  }, [selectedTeam, selectedPosition, selectedSeason, selectedContract, searchQuery]);
 
   const fetchTeamsAndSeasons = async () => {
     try {
@@ -83,6 +84,7 @@ export default function PlayersPage() {
       const params = new URLSearchParams();
       if (selectedTeam) params.append('teamId', selectedTeam);
       if (selectedSeason) params.append('seasonId', selectedSeason);
+      if (searchQuery.trim()) params.append('search', searchQuery.trim()); // Search by name only for public
       
       const response = await fetch(`${url}${params.toString()}`);
       
@@ -104,7 +106,7 @@ export default function PlayersPage() {
             filteredData = filteredData.filter(player => player.position === selectedPosition);
           }
           
-          // NEW: Filter by contract status if selected
+          // Filter by contract status if selected
           if (selectedContract) {
             filteredData = filteredData.filter(player => {
               const contractStatus = player.contractStatus || 'free_agent';
@@ -132,7 +134,7 @@ export default function PlayersPage() {
   // Updated positions to match your Futsal model
   const positions = ['Goalkeeper', 'Outfield Player'];
 
-  // NEW: Contract status helpers
+  // Contract status helpers
   const getContractStatusColor = (contractStatus) => {
     switch (contractStatus) {
       case 'normal': return 'bg-blue-100 text-blue-800 border-blue-200';
@@ -200,6 +202,14 @@ export default function PlayersPage() {
     return null;
   };
 
+  const clearAllFilters = () => {
+    setSelectedTeam('');
+    setSelectedPosition('');
+    setSelectedContract('');
+    setSearchQuery('');
+    setSelectedSeason('');
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-64">
@@ -213,9 +223,41 @@ export default function PlayersPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
         <h1 className="text-3xl font-bold text-gray-900">Players</h1>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 w-full md:w-auto">
-          {/* Season Filter */}
-          {seasons.length > 0 && (
+        {/* Clear Filters Button */}
+        {(selectedTeam || selectedPosition || selectedContract || searchQuery || selectedSeason) && (
+          <button
+            onClick={clearAllFilters}
+            className="btn-secondary text-sm"
+          >
+            Clear All Filters
+          </button>
+        )}
+      </div>
+
+      {/* Enhanced Filters Section */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+        {/* Search Input - PUBLIC: Only searches by NAME for privacy */}
+        <div className="lg:col-span-2">
+          <label className="form-label text-sm">Search Players</label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by player name only..."
+              className="form-input pl-10"
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Search by player name for privacy protection
+          </p>
+        </div>
+
+        {/* Season Filter */}
+        {seasons.length > 0 && (
+          <div>
+            <label className="form-label text-sm">Season</label>
             <select
               value={selectedSeason}
               onChange={(e) => setSelectedSeason(e.target.value)}
@@ -228,23 +270,30 @@ export default function PlayersPage() {
                 </option>
               ))}
             </select>
-          )}
-          
-          {/* Team Filter */}
+          </div>
+        )}
+        
+        {/* Team Filter */}
+        <div>
+          <label className="form-label text-sm">Team</label>
           <select
             value={selectedTeam}
             onChange={(e) => setSelectedTeam(e.target.value)}
             className="form-input w-full"
           >
             <option value="">All Teams</option>
+            <option value="free-agents">Free Agents</option>
             {teams.map(team => (
               <option key={team._id} value={team._id}>
                 {team.name}
               </option>
             ))}
           </select>
+        </div>
 
-          {/* Position Filter */}
+        {/* Position Filter */}
+        <div>
+          <label className="form-label text-sm">Position</label>
           <select
             value={selectedPosition}
             onChange={(e) => setSelectedPosition(e.target.value)}
@@ -257,8 +306,11 @@ export default function PlayersPage() {
               </option>
             ))}
           </select>
-          
-          {/* NEW: Contract Status Filter */}
+        </div>
+        
+        {/* Contract Status Filter */}
+        <div>
+          <label className="form-label text-sm">Contract Status</label>
           <select
             value={selectedContract}
             onChange={(e) => setSelectedContract(e.target.value)}
@@ -304,7 +356,7 @@ export default function PlayersPage() {
         {players.map((player) => (
           <Link key={player._id} href={`/players/${player._id}`}>
             <div className="card hover:shadow-lg transition-all duration-200 cursor-pointer relative overflow-hidden">
-              {/* NEW: Contract Status Header */}
+              {/* Contract Status Header */}
               <div className={`absolute top-0 left-0 right-0 px-4 py-2 border-b ${
                 getContractStatusColor(player.contractStatus || 'free_agent')
               }`}>
@@ -315,7 +367,7 @@ export default function PlayersPage() {
                       {getContractStatusLabel(player.contractStatus || 'free_agent')}
                     </span>
                   </div>
-                  {/* NEW: Transfer Eligibility Badge */}
+                  {/* Transfer Eligibility Badge */}
                   {getTransferEligibilityBadge(player)}
                 </div>
               </div>
@@ -353,6 +405,8 @@ export default function PlayersPage() {
                   <h3 className="text-lg font-bold text-gray-900">
                     {player.name}
                   </h3>
+                  
+                  {/* REMOVED: ID Card Display - NOT SHOWN TO PUBLIC */}
                   
                   {player.jerseyNumber && (
                     <div className="text-2xl font-bold text-blue-600 mb-2">
@@ -401,7 +455,7 @@ export default function PlayersPage() {
                     </div>
                   )}
                   
-                  {/* NEW: Contract Value Display */}
+                  {/* Contract Value Display - Only show if public */}
                   {player.currentContract?.contractValue > 0 && (
                     <div className="flex items-center justify-between">
                       <span className="text-gray-600">Value:</span>
@@ -417,19 +471,19 @@ export default function PlayersPage() {
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div>
                       <div className="text-lg font-bold text-green-600">
-                        {player.stats?.goals || 0}
+                        {player.careerStats?.goals || player.stats?.goals || 0}
                       </div>
                       <div className="text-xs text-gray-600">Goals</div>
                     </div>
                     <div>
                       <div className="text-lg font-bold text-blue-600">
-                        {player.stats?.assists || 0}
+                        {player.careerStats?.assists || player.stats?.assists || 0}
                       </div>
                       <div className="text-xs text-gray-600">Assists</div>
                     </div>
                     <div>
                       <div className="text-lg font-bold text-purple-600">
-                        {player.stats?.matchesPlayed || 0}
+                        {player.careerStats?.appearances || player.stats?.matchesPlayed || 0}
                       </div>
                       <div className="text-xs text-gray-600">Matches</div>
                     </div>
@@ -446,33 +500,41 @@ export default function PlayersPage() {
           <User className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-gray-700 mb-4">No Players Found</h2>
           <p className="text-gray-500">
-            No players match the selected filters.
+            {searchQuery ? `No players match "${searchQuery}" with the selected filters.` : 'No players match the selected filters.'}
           </p>
+          {(selectedTeam || selectedPosition || selectedContract || searchQuery || selectedSeason) && (
+            <button
+              onClick={clearAllFilters}
+              className="btn-primary mt-4"
+            >
+              Clear All Filters
+            </button>
+          )}
         </div>
       )}
 
-      {/* Player Statistics Summary */}
+      {/* Enhanced Player Statistics Summary */}
       {players.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* General Stats */}
           <div className="card">
             <h3 className="text-lg font-semibold mb-4">Player Statistics</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">{players.length}</div>
-                <div className="text-gray-600">Total Players</div>
+                <div className="text-gray-600 text-sm">Total Players</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600">
-                  {players.reduce((sum, p) => sum + (p.stats?.goals || 0), 0)}
+                  {players.reduce((sum, p) => sum + (p.careerStats?.goals || p.stats?.goals || 0), 0)}
                 </div>
-                <div className="text-gray-600">Total Goals</div>
+                <div className="text-gray-600 text-sm">Total Goals</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-purple-600">
-                  {players.reduce((sum, p) => sum + (p.stats?.assists || 0), 0)}
+                  {players.reduce((sum, p) => sum + (p.careerStats?.assists || p.stats?.assists || 0), 0)}
                 </div>
-                <div className="text-gray-600">Total Assists</div>
+                <div className="text-gray-600 text-sm">Total Assists</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-yellow-600">
@@ -483,47 +545,75 @@ export default function PlayersPage() {
                     : 0
                   }
                 </div>
-                <div className="text-gray-600">Avg Age</div>
+                <div className="text-gray-600 text-sm">Avg Age</div>
               </div>
             </div>
           </div>
           
-          {/* NEW: Contract Distribution */}
+          {/* Contract Distribution */}
           <div className="card">
             <h3 className="text-lg font-semibold mb-4">Contract Distribution</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-600">
                   {players.filter(p => (p.contractStatus || 'free_agent') === 'free_agent').length}
                 </div>
-                <div className="text-gray-600">Free Agents</div>
+                <div className="text-gray-600 text-sm">Free Agents</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">
                   {players.filter(p => p.contractStatus === 'normal').length}
                 </div>
-                <div className="text-gray-600">Normal Contracts</div>
+                <div className="text-gray-600 text-sm">Normal Contracts</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-purple-600">
                   {players.filter(p => p.contractStatus === 'seasonal').length}
                 </div>
-                <div className="text-gray-600">Seasonal Contracts</div>
+                <div className="text-gray-600 text-sm">Seasonal Contracts</div>
               </div>
             </div>
-            
-            {/* Contract Value Summary */}
-            <div className="mt-4 pt-4 border-t border-gray-200">
+          </div>
+
+          {/* Contract Value Stats */}
+          <div className="card">
+            <h3 className="text-lg font-semibold mb-4">Market Information</h3>
+            <div className="grid grid-cols-1 gap-4">
               <div className="text-center">
-                <div className="text-xl font-bold text-green-600">
+                <div className="text-lg font-bold text-green-600">
                   MVR {players
                     .reduce((sum, p) => sum + (p.currentContract?.contractValue || 0), 0)
                     .toLocaleString()}
                 </div>
-                <div className="text-gray-600">Total Contract Value</div>
+                <div className="text-gray-600 text-sm">Total Contract Value</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">
+                  {players.filter(p => p.currentContract?.contractValue > 0).length}
+                </div>
+                <div className="text-gray-600 text-sm">Contracted Players</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-600">
+                  {players.filter(p => p.position === 'Goalkeeper').length}
+                </div>
+                <div className="text-gray-600 text-sm">Goalkeepers</div>
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Search Help - Updated for privacy */}
+      {searchQuery && (
+        <div className="card bg-yellow-50 border-yellow-200">
+          <h4 className="text-sm font-semibold text-yellow-900 mb-2">Search Tips:</h4>
+          <ul className="text-xs text-yellow-800 space-y-1">
+            <li>• Search by player name only for privacy protection</li>
+            <li>• Use partial names to find players (e.g., "Ahmed", "Mohamed")</li>
+            <li>• Combine with filters above to narrow down results</li>
+            <li>• Player identification numbers are private and not searchable</li>
+          </ul>
         </div>
       )}
     </div>
