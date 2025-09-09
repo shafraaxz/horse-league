@@ -1,4 +1,4 @@
-// FILE: pages/api/public/players.js - FIXED VERSION WITH DEBUGGING
+// FILE: pages/api/public/players.js - COMPREHENSIVE FIX
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
 import Team from '../../../models/Team';
@@ -64,31 +64,24 @@ export default async function handler(req, res) {
 
     console.log(`🔍 Found ${players.length} players from database`);
 
-    // Debug: Log stats for top 5 players to see what's in the database
-    const debugPlayers = players.slice(0, 5);
-    console.log('🔍 Sample player stats from DB:', debugPlayers.map(p => ({
-      name: p.name,
-      careerGoals: p.careerStats?.goals,
-      careerAssists: p.careerStats?.assists,
-      careerAppearances: p.careerStats?.appearances,
-      hasCareerStats: !!p.careerStats,
-      currentTeam: p.currentTeam?.name || 'Free Agent'
-    })));
-
-    // Remove private/sensitive data and ensure contract status is included
-    const publicPlayers = players.map(player => {
-      // Calculate normalized stats (same logic as frontend)
-      const normalizedStats = {
-        goals: player.careerStats?.goals || player.stats?.goals || 0,
-        assists: player.careerStats?.assists || player.stats?.assists || 0,
-        appearances: player.careerStats?.appearances || player.stats?.matchesPlayed || player.stats?.appearances || 0,
-        yellowCards: player.careerStats?.yellowCards || player.stats?.yellowCards || 0,
-        redCards: player.careerStats?.redCards || player.stats?.redCards || 0,
-        minutesPlayed: player.careerStats?.minutesPlayed || player.stats?.minutesPlayed || 0,
+    // STANDARDIZED NORMALIZATION FUNCTION
+    const normalizePlayerStats = (player) => {
+      return {
+        goals: player.careerStats?.goals || 0,
+        assists: player.careerStats?.assists || 0,
+        appearances: player.careerStats?.appearances || 0,
+        yellowCards: player.careerStats?.yellowCards || 0,
+        redCards: player.careerStats?.redCards || 0,
+        minutesPlayed: player.careerStats?.minutesPlayed || 0,
         wins: player.careerStats?.wins || 0,
         losses: player.careerStats?.losses || 0,
         draws: player.careerStats?.draws || 0
       };
+    };
+
+    // Remove private/sensitive data and ensure consistent statistics
+    const publicPlayers = players.map(player => {
+      const normalizedStats = normalizePlayerStats(player);
 
       return {
         _id: player._id,
@@ -132,7 +125,7 @@ export default async function handler(req, res) {
           notes: player.currentContract.notes || ''
         } : null,
         
-        // FIXED: Use original careerStats from database
+        // CONSISTENT STATISTICS - Use careerStats as primary source
         careerStats: player.careerStats || {
           appearances: 0,
           goals: 0,
@@ -145,20 +138,18 @@ export default async function handler(req, res) {
           draws: 0
         },
         
-        // FIXED: Computed stats using normalized values for consistency
+        // DEPRECATED: Keep for backwards compatibility but mark as deprecated
         stats: normalizedStats
       };
     });
 
-    // Debug: Calculate totals to compare with stats API
+    // Debug: Calculate totals to verify consistency
     const totalGoals = publicPlayers.reduce((sum, p) => sum + (p.careerStats?.goals || 0), 0);
-    const totalNormalizedGoals = publicPlayers.reduce((sum, p) => sum + (p.stats?.goals || 0), 0);
     const playersWithGoals = publicPlayers.filter(p => (p.careerStats?.goals || 0) > 0);
     
-    console.log('🔍 Player API stats summary:', {
+    console.log('🔍 Player API stats summary (FIXED):', {
       totalPlayers: publicPlayers.length,
-      totalGoalsFromCareerStats: totalGoals,
-      totalGoalsFromNormalizedStats: totalNormalizedGoals,
+      totalGoals,
       playersWithGoals: playersWithGoals.length,
       topScorers: playersWithGoals
         .sort((a, b) => (b.careerStats?.goals || 0) - (a.careerStats?.goals || 0))
