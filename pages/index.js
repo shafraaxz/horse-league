@@ -1,4 +1,4 @@
-// FILE: pages/index.js (Enhanced with more statistics and attractive design)
+// FILE: pages/index.js (Enhanced with FIXED statistics)
 // ===========================================
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -39,6 +39,7 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
+  // FIXED: Homepage data fetching with consistent normalization
   const fetchHomeData = async () => {
     try {
       console.log('Fetching enhanced home page data...');
@@ -57,7 +58,7 @@ export default function Home() {
             ...statsData,
             avgGoalsPerMatch
           });
-          console.log('Enhanced stats:', statsData);
+          console.log('Enhanced stats (FIXED):', statsData);
         }
       } catch (error) {
         console.error('Error fetching comprehensive stats:', error);
@@ -134,54 +135,51 @@ export default function Home() {
         console.error('Error fetching recent matches:', error);
       }
 
-      // Fetch top players (goals and assists) - FIXED VERSION
+      // FIXED: Fetch top players using CONSISTENT normalization - only careerStats
       try {
         const playersResponse = await fetch('/api/public/players');
         if (playersResponse.ok) {
           const playersData = await playersResponse.json();
           if (Array.isArray(playersData)) {
-            console.log('Raw players data sample:', playersData.slice(0, 3).map(p => ({
+            console.log('Raw players data sample (FIXED):', playersData.slice(0, 3).map(p => ({
               name: p.name,
               careerGoals: p.careerStats?.goals,
-              statsGoals: p.stats?.goals,
-              careerAssists: p.careerStats?.assists,
-              statsAssists: p.stats?.assists
+              careerAssists: p.careerStats?.assists
             })));
             
-            // Sort by goals (use careerStats first, fallback to stats, then 0)
+            // FIXED: Use only careerStats for consistency across all pages
             const scorers = playersData
+              .filter(p => (p.careerStats?.goals || 0) > 0)
+              .sort((a, b) => (b.careerStats?.goals || 0) - (a.careerStats?.goals || 0))
+              .slice(0, 5)
               .map(player => ({
                 ...player,
-                // Normalize goals field - use careerStats first, then stats, then 0
-                normalizedGoals: player.careerStats?.goals || player.stats?.goals || 0,
-                normalizedAssists: player.careerStats?.assists || player.stats?.assists || 0
-              }))
-              .filter(p => p.normalizedGoals > 0)
-              .sort((a, b) => b.normalizedGoals - a.normalizedGoals)
-              .slice(0, 5);
+                // Add normalized field for display consistency
+                normalizedGoals: player.careerStats?.goals || 0
+              }));
             
             setTopScorers(scorers);
-            console.log('Top scorers after fix:', scorers.map(p => `${p.name}: ${p.normalizedGoals} goals`));
+            console.log('Top scorers (FIXED):', scorers.map(p => `${p.name}: ${p.normalizedGoals} goals`));
             
-            // Sort by assists
+            // FIXED: Use only careerStats for assists
             const assisters = playersData
+              .filter(p => (p.careerStats?.assists || 0) > 0)
+              .sort((a, b) => (b.careerStats?.assists || 0) - (a.careerStats?.assists || 0))
+              .slice(0, 5)
               .map(player => ({
                 ...player,
-                normalizedAssists: player.careerStats?.assists || player.stats?.assists || 0
-              }))
-              .filter(p => p.normalizedAssists > 0)
-              .sort((a, b) => b.normalizedAssists - a.normalizedAssists)
-              .slice(0, 5);
+                normalizedAssists: player.careerStats?.assists || 0
+              }));
             
             setTopAssists(assisters);
-            console.log('Top assisters after fix:', assisters.map(p => `${p.name}: ${p.normalizedAssists} assists`));
+            console.log('Top assisters (FIXED):', assisters.map(p => `${p.name}: ${p.normalizedAssists} assists`));
           }
         }
       } catch (error) {
         console.error('Error fetching top players:', error);
       }
 
-      console.log('Enhanced home data fetch completed');
+      console.log('Enhanced home data fetch completed (FIXED)');
     } catch (error) {
       console.error('Error in fetchHomeData:', error);
     } finally {
@@ -189,6 +187,7 @@ export default function Home() {
     }
   };
 
+  // FIXED: Update the basic stats function for consistency
   const fetchBasicStats = async () => {
     try {
       const [teamsRes, playersRes, matchesRes] = await Promise.all([
@@ -214,10 +213,9 @@ export default function Home() {
         const players = await playersRes.json();
         if (Array.isArray(players)) {
           totalPlayers = players.length;
+          // FIXED: Use only careerStats for consistency
           totalGoals = players.reduce((sum, p) => {
-            // Use the same normalization logic for consistency
-            const goals = p.careerStats?.goals || p.stats?.goals || 0;
-            return sum + goals;
+            return sum + (p.careerStats?.goals || 0);
           }, 0);
         }
       }
@@ -246,6 +244,12 @@ export default function Home() {
         totalTransfers: 0,
         avgGoalsPerMatch,
         matchCompletionRate
+      });
+      
+      console.log('Basic stats (FIXED):', {
+        totalGoals,
+        totalPlayers,
+        avgGoalsPerMatch
       });
     } catch (error) {
       console.error('Error fetching basic stats:', error);
@@ -535,7 +539,7 @@ export default function Home() {
                   </div>
                   <div className="text-right">
                     <p className="font-bold text-lg text-red-600">
-                      {player.normalizedGoals || player.careerStats?.goals || player.stats?.goals || 0}
+                      {player.normalizedGoals}
                     </p>
                     <p className="text-xs text-gray-500">goals</p>
                   </div>
