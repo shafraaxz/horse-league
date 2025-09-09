@@ -93,16 +93,15 @@ export default function Navbar() {
         <div className="flex justify-between h-16">
           {/* Logo */}
           <div className="flex items-center">
-            <Link href="/" className="flex-shrink-0 flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-                <Trophy className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 hidden sm:block">
-                  Horse Futsal League
-                </h1>
-                <h1 className="text-lg font-bold text-gray-900 sm:hidden">HFL</h1>
-              </div>
+            <Link href="/" className="flex-shrink-0 flex items-center">
+              <Image
+                src="https://res.cloudinary.com/dq8lszs2o/image/upload/v1756746019/horse-futsal/players/job5avuddbvnwebgeqgu.png"
+                alt="Horse Futsal League"
+                width={120}
+                height={40}
+                className="h-10 w-auto object-contain"
+                priority
+              />
             </Link>
 
             {/* Live Match Indicator */}
