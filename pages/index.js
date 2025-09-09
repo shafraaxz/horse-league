@@ -6,7 +6,7 @@ import NextImage from 'next/image';
 import { 
   Trophy, Users, Calendar, TrendingUp, Play, Target, Award, 
   Clock, Activity, Zap, Star, BarChart3, Shield, Timer,
-  Flame, Crown, Medal, ChevronRight, Eye, ArrowUp
+  Flame, Crown, Medal, ChevronRight, Eye, ArrowUp, RefreshCw
 } from 'lucide-react';
 import { format, isToday, isTomorrow, isYesterday } from 'date-fns';
 
