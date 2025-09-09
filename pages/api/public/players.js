@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/public/players.js (FIXED - ID Cards PRIVATE)
+// FILE: pages/api/public/players.js (FIXED - Handles players without ID cards)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
@@ -19,7 +19,7 @@ export default async function handler(req, res) {
       teamId, 
       position, 
       contractStatus, 
-      search, // IMPORTANT: For public API, search only by NAME for privacy
+      search,
       limit = 50 
     } = req.query;
 
@@ -62,24 +62,19 @@ export default async function handler(req, res) {
       if (query.$or) delete query.$or;
     }
     
-    // PRIVACY PROTECTION: Public search ONLY by name for privacy
+    // PRIVACY PROTECTION: Public search ONLY by name
     if (search && search.trim()) {
       const searchTerm = search.trim();
       const searchRegex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       
-      // If query already has $or, we need to combine it with search
       if (query.$or) {
-        // Store the existing $or condition
         const existingOr = query.$or;
         delete query.$or;
-        
-        // Create a new compound query - ONLY search by name for public
         query.$and = [
-          { $or: existingOr }, // Existing season/team conditions
-          { name: searchRegex } // ONLY name search for privacy
+          { $or: existingOr },
+          { name: searchRegex }
         ];
       } else {
-        // Simple search without existing $or - ONLY by name
         query.name = searchRegex;
       }
     }
@@ -89,20 +84,22 @@ export default async function handler(req, res) {
 
     console.log('Public players query:', JSON.stringify(query, null, 2));
 
+    // FIXED: Don't exclude fields in the query, just don't send them in response
     const players = await Player.find(query)
       .populate('currentTeam', 'name logo season')
       .populate('currentContract.team', 'name logo')
       .populate('currentContract.season', 'name isActive startDate endDate')
-      .select('-email -phone -idCardNumber -emergencyContact -medicalInfo -notes -transferHistory -contractHistory') // EXCLUDE private data including idCardNumber
       .sort({ name: 1 })
       .limit(parseInt(limit))
       .lean();
 
-    // Process players for public consumption - ID CARDS COMPLETELY REMOVED
+    console.log(`Found ${players.length} players before processing`);
+
+    // Process players and REMOVE private data in the response (not the query)
     const publicPlayers = players.map(player => ({
       _id: player._id,
       name: player.name,
-      // REMOVED: idCardNumber - NOT SENT TO PUBLIC
+      // ID card is intentionally excluded from public response
       dateOfBirth: player.dateOfBirth,
       nationality: player.nationality,
       position: player.position,
@@ -113,16 +110,15 @@ export default async function handler(req, res) {
       currentTeam: player.currentTeam,
       status: player.status,
       
-      // Contract information (keeping contract values public for transparency)
+      // Contract information
       contractStatus: player.contractStatus || 'free_agent',
       currentContract: player.currentContract ? {
         team: player.currentContract.team,
         season: player.currentContract.season,
         contractType: player.currentContract.contractType,
-        contractValue: player.currentContract.contractValue, // Public for transparency
+        contractValue: player.currentContract.contractValue,
         startDate: player.currentContract.startDate,
         endDate: player.currentContract.endDate
-        // REMOVED: notes - kept private
       } : null,
       
       // Statistics
@@ -144,7 +140,7 @@ export default async function handler(req, res) {
       updatedAt: player.updatedAt
     }));
 
-    console.log(`Public API returned ${publicPlayers.length} players (ID cards protected)`);
+    console.log(`Public API returned ${publicPlayers.length} players (private data excluded from response)`);
 
     return res.status(200).json(publicPlayers);
 
