@@ -694,12 +694,12 @@ function EnhancedMatchForm({ match, teams, seasons, selectedSeason, onClose, onS
     }
   };
 
-  const addPlayerEvent = (playerId, playerName, team, eventType) => {
+ const addPlayerEvent = (playerId, playerName, team, eventType) => {
     const newEvent = {
       id: Date.now(),
       type: eventType,
       team: team,
-      minute: 40, // Default to full match for completed games
+      minute: 40, // Changed from 90 to 40 for full match duration
       player: playerId,
       playerName: playerName,
       description: `${eventType.replace('_', ' ').toUpperCase()} - ${playerName}`,
