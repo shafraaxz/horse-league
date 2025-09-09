@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/public/players.js (UPDATED - ID Card Search Support)
+// FILE: pages/api/public/players.js (FIXED - ID Cards PRIVATE)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
@@ -19,7 +19,7 @@ export default async function handler(req, res) {
       teamId, 
       position, 
       contractStatus, 
-      search, // NEW: Search parameter
+      search, // IMPORTANT: For public API, search only by NAME for privacy
       limit = 50 
     } = req.query;
 
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
       if (query.$or) delete query.$or;
     }
     
-    // NEW: Search functionality (name, ID card, email)
+    // PRIVACY PROTECTION: Public search ONLY by name for privacy
     if (search && search.trim()) {
       const searchTerm = search.trim();
       const searchRegex = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
@@ -73,24 +73,14 @@ export default async function handler(req, res) {
         const existingOr = query.$or;
         delete query.$or;
         
-        // Create a new compound query
+        // Create a new compound query - ONLY search by name for public
         query.$and = [
           { $or: existingOr }, // Existing season/team conditions
-          { 
-            $or: [ // Search conditions
-              { name: searchRegex },
-              { idCardNumber: searchRegex },
-              { email: searchRegex }
-            ]
-          }
+          { name: searchRegex } // ONLY name search for privacy
         ];
       } else {
-        // Simple search without existing $or
-        query.$or = [
-          { name: searchRegex },
-          { idCardNumber: searchRegex },
-          { email: searchRegex }
-        ];
+        // Simple search without existing $or - ONLY by name
+        query.name = searchRegex;
       }
     }
     
@@ -103,16 +93,16 @@ export default async function handler(req, res) {
       .populate('currentTeam', 'name logo season')
       .populate('currentContract.team', 'name logo')
       .populate('currentContract.season', 'name isActive startDate endDate')
-      .select('-email -phone -emergencyContact -medicalInfo -notes -transferHistory -contractHistory') // Hide private data
+      .select('-email -phone -idCardNumber -emergencyContact -medicalInfo -notes -transferHistory -contractHistory') // EXCLUDE private data including idCardNumber
       .sort({ name: 1 })
       .limit(parseInt(limit))
       .lean();
 
-    // Process players for public consumption
+    // Process players for public consumption - ID CARDS COMPLETELY REMOVED
     const publicPlayers = players.map(player => ({
       _id: player._id,
       name: player.name,
-      idCardNumber: player.idCardNumber, // NOW VISIBLE for verification purposes
+      // REMOVED: idCardNumber - NOT SENT TO PUBLIC
       dateOfBirth: player.dateOfBirth,
       nationality: player.nationality,
       position: player.position,
@@ -123,7 +113,7 @@ export default async function handler(req, res) {
       currentTeam: player.currentTeam,
       status: player.status,
       
-      // Contract information
+      // Contract information (keeping contract values public for transparency)
       contractStatus: player.contractStatus || 'free_agent',
       currentContract: player.currentContract ? {
         team: player.currentContract.team,
@@ -132,6 +122,7 @@ export default async function handler(req, res) {
         contractValue: player.currentContract.contractValue, // Public for transparency
         startDate: player.currentContract.startDate,
         endDate: player.currentContract.endDate
+        // REMOVED: notes - kept private
       } : null,
       
       // Statistics
@@ -153,7 +144,7 @@ export default async function handler(req, res) {
       updatedAt: player.updatedAt
     }));
 
-    console.log(`Public API returned ${publicPlayers.length} players`);
+    console.log(`Public API returned ${publicPlayers.length} players (ID cards protected)`);
 
     return res.status(200).json(publicPlayers);
 
