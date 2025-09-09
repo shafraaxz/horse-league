@@ -1,4 +1,6 @@
-// FILE: pages/api/public/players.js - COMPREHENSIVE FIX
+// ===========================================
+// FILE 3: pages/api/public/players.js (FIXED - Remove 50 Player Limit)
+// ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Player from '../../../models/Player';
 import Team from '../../../models/Team';
@@ -11,9 +13,9 @@ export default async function handler(req, res) {
   await dbConnect();
 
   try {
-    const { seasonId, teamId, search, limit = 50 } = req.query;
+    const { seasonId, teamId, search } = req.query; // REMOVED limit parameter
     
-    console.log('🔍 Public players API called with:', { seasonId, teamId, search, limit });
+    console.log('🔍 Public players API called with:', { seasonId, teamId, search });
     
     let query = {};
     
@@ -54,15 +56,16 @@ export default async function handler(req, res) {
 
     console.log('🔍 Player query built:', JSON.stringify(query, null, 2));
     
+    // FIXED: Fetch ALL players without limit
     const players = await Player.find(query)
       .populate('currentTeam', 'name logo season')
       .populate('currentContract.team', 'name logo')
       .populate('currentContract.season', 'name isActive startDate endDate')
       .sort({ name: 1 })
-      .limit(parseInt(limit))
+      // .limit(parseInt(limit)) // REMOVED LIMIT
       .lean();
 
-    console.log(`🔍 Found ${players.length} players from database`);
+    console.log(`🔍 Found ${players.length} players from database (NO LIMIT)`);
 
     // STANDARDIZED NORMALIZATION FUNCTION
     const normalizePlayerStats = (player) => {
@@ -79,7 +82,7 @@ export default async function handler(req, res) {
       };
     };
 
-    // Remove private/sensitive data and ensure consistent statistics
+    // Process players with consistent statistics
     const publicPlayers = players.map(player => {
       const normalizedStats = normalizePlayerStats(player);
 
@@ -102,8 +105,6 @@ export default async function handler(req, res) {
         } : null,
         
         status: player.status,
-        
-        // Contract information
         contractStatus: player.contractStatus || 'free_agent',
         currentContract: player.currentContract && player.currentContract.team ? {
           team: player.currentContract.team ? {
@@ -138,7 +139,7 @@ export default async function handler(req, res) {
           draws: 0
         },
         
-        // DEPRECATED: Keep for backwards compatibility but mark as deprecated
+        // For backwards compatibility
         stats: normalizedStats
       };
     });
@@ -147,7 +148,7 @@ export default async function handler(req, res) {
     const totalGoals = publicPlayers.reduce((sum, p) => sum + (p.careerStats?.goals || 0), 0);
     const playersWithGoals = publicPlayers.filter(p => (p.careerStats?.goals || 0) > 0);
     
-    console.log('🔍 Player API stats summary (FIXED):', {
+    console.log('🔍 Player API stats summary (FIXED - NO LIMIT):', {
       totalPlayers: publicPlayers.length,
       totalGoals,
       playersWithGoals: playersWithGoals.length,
