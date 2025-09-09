@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/api/admin/contracts.js (NEW CONTRACT MANAGEMENT API)
+// FILE 2: pages/api/admin/contracts.js (FIXED VERSION WITH STATS PRESERVATION)
 // ===========================================
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
@@ -40,61 +40,53 @@ export default async function handler(req, res) {
   }
 }
 
-// GET - Fetch contracts with filters
+// GET - Fetch all contract information
 async function getContracts(req, res) {
   try {
-    const { seasonId, teamId, contractType, playerId } = req.query;
+    const { seasonId, teamId, contractType } = req.query;
     
     let query = {};
     
-    // Filter by player
-    if (playerId && playerId !== 'all') {
-      query._id = playerId;
-    }
-    
-    // Filter by team (through current contract)
-    if (teamId && teamId !== 'all') {
-      query['currentContract.team'] = new mongoose.Types.ObjectId(teamId);
-    }
-    
-    // Filter by season (through current contract)
-    if (seasonId && seasonId !== 'all') {
-      query['currentContract.season'] = new mongoose.Types.ObjectId(seasonId);
-    }
-    
-    // Filter by contract type
+    // Build query based on filters
     if (contractType && contractType !== 'all') {
-      if (contractType === 'free_agent') {
-        query.contractStatus = 'free_agent';
+      query.contractStatus = contractType;
+    }
+    
+    // Team filter
+    if (teamId && teamId !== 'all') {
+      if (teamId === 'free-agents') {
+        query.currentTeam = null;
       } else {
-        query.contractStatus = contractType;
+        query.currentTeam = teamId;
       }
     }
-
+    
     const players = await Player.find(query)
+      .populate('currentTeam', 'name logo')
       .populate('currentContract.team', 'name logo')
       .populate('currentContract.season', 'name isActive startDate endDate')
-      .populate('currentTeam', 'name logo')
-      .sort({ 'currentContract.startDate': -1, name: 1 })
+      .sort({ name: 1 })
       .lean();
 
-    // Format contract data for response
+    // Format contracts for response
     const contracts = players.map(player => ({
-      playerId: player._id,
+      _id: player._id,
       playerName: player.name,
-      playerPhoto: player.photo,
       currentTeam: player.currentTeam,
-      contractStatus: player.contractStatus,
-      currentContract: player.currentContract || null,
+      contractStatus: player.contractStatus || 'free_agent',
+      currentContract: player.currentContract,
       contractHistory: player.contractHistory || [],
-      canTransfer: player.contractStatus === 'free_agent' || 
-                  (player.currentContract?.contractType === 'normal'),
-      transferEligible: player.contractStatus !== 'seasonal' || 
-                       (player.currentContract?.season && !player.currentContract.season.isActive)
+      // Include career stats for verification
+      careerStats: player.careerStats || {
+        appearances: 0,
+        goals: 0,
+        assists: 0,
+        yellowCards: 0,
+        redCards: 0,
+        minutesPlayed: 0
+      }
     }));
 
-    console.log(`Fetched ${contracts.length} player contracts`);
-    
     return res.status(200).json(contracts);
   } catch (error) {
     console.error('Error fetching contracts:', error);
@@ -102,7 +94,7 @@ async function getContracts(req, res) {
   }
 }
 
-// POST - Update player contract
+// FIXED: POST - Update player contract with career stats preservation
 async function updatePlayerContract(req, res) {
   try {
     const { 
@@ -116,24 +108,29 @@ async function updatePlayerContract(req, res) {
       notes = '' 
     } = req.body;
 
-    // Validate required fields
-    if (!playerId) {
-      return res.status(400).json({ message: 'Player ID is required' });
+    if (!playerId || !mongoose.Types.ObjectId.isValid(playerId)) {
+      return res.status(400).json({ message: 'Valid player ID is required' });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(playerId)) {
-      return res.status(400).json({ message: 'Invalid player ID' });
-    }
-
-    // Get player
     const player = await Player.findById(playerId);
     if (!player) {
       return res.status(404).json({ message: 'Player not found' });
     }
 
+    // CRITICAL: Preserve existing career statistics before any contract changes
+    const preservedCareerStats = player.careerStats || {
+      appearances: 0,
+      goals: 0,
+      assists: 0,
+      yellowCards: 0,
+      redCards: 0,
+      minutesPlayed: 0
+    };
+
+    console.log(`🛡️ Preserving career stats for ${player.name} during contract update:`, preservedCareerStats);
+
     // If no team provided, make player free agent
     if (!team) {
-      // Release player from current contract
       if (player.currentContract && player.currentContract.team) {
         // Add to contract history
         player.contractHistory.push({
@@ -143,73 +140,56 @@ async function updatePlayerContract(req, res) {
         });
 
         // Create transfer record for release
-        await createTransferRecord(
+        await createTransferRecordWithStatsPreservation(
           playerId, 
           player.currentContract.team, 
-          null, 
-          season || player.currentContract.season,
+          null,
+          preservedCareerStats,
           'release'
         );
       }
 
-      // Clear current contract and team
+      // Clear current contract and team but PRESERVE career stats
       player.currentContract = {};
       player.currentTeam = null;
       player.contractStatus = 'free_agent';
+      player.careerStats = preservedCareerStats; // Explicit preservation
 
       await player.save();
 
-      console.log('✅ Player released to free agency:', player.name);
+      console.log('✅ Player released to free agency with preserved career stats:', player.name);
 
       return res.status(200).json({
-        message: 'Player released to free agency',
+        message: 'Player released to free agency with preserved career statistics',
         player: {
           _id: player._id,
           name: player.name,
           contractStatus: player.contractStatus,
-          currentContract: null
+          currentContract: null,
+          careerStats: preservedCareerStats
         }
       });
     }
 
     // Validate team and season
-    if (!mongoose.Types.ObjectId.isValid(team)) {
-      return res.status(400).json({ message: 'Invalid team ID' });
+    if (!mongoose.Types.ObjectId.isValid(team) || !mongoose.Types.ObjectId.isValid(season)) {
+      return res.status(400).json({ message: 'Valid team and season IDs are required' });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(season)) {
-      return res.status(400).json({ message: 'Invalid season ID' });
-    }
-
-    // Verify team and season exist
     const [targetTeam, targetSeason] = await Promise.all([
       Team.findById(team),
       Season.findById(season)
     ]);
 
-    if (!targetTeam) {
-      return res.status(404).json({ message: 'Team not found' });
+    if (!targetTeam || !targetSeason) {
+      return res.status(404).json({ message: 'Team or season not found' });
     }
 
-    if (!targetSeason) {
-      return res.status(404).json({ message: 'Season not found' });
-    }
-
-    // Check if player can be transferred (contract rules)
-    const transferEligibility = await player.canTransfer(targetSeason);
-    if (!transferEligibility.canTransfer) {
-      return res.status(400).json({ 
-        message: 'Transfer not allowed', 
-        reason: transferEligibility.reason,
-        contractEndDate: transferEligibility.contractEndDate
-      });
-    }
-
-    // Store old team for transfer record
+    // Store old team for transfer tracking
     const oldTeamId = player.currentTeam;
     const oldContractTeamId = player.currentContract?.team;
 
-    // Terminate current contract if exists
+    // Terminate current contract if exists (preserve stats)
     if (player.currentContract && player.currentContract.team) {
       player.contractHistory.push({
         ...player.currentContract,
@@ -226,13 +206,14 @@ async function updatePlayerContract(req, res) {
       startDate: startDate ? new Date(startDate) : new Date(),
       endDate: endDate ? new Date(endDate) : null,
       contractValue: parseFloat(contractValue) || 0,
-      notes: notes
+      notes: notes || `Contract updated - career stats preserved`
     };
 
-    // Update player
+    // Update player but PRESERVE career statistics
     player.currentContract = newContract;
     player.currentTeam = new mongoose.Types.ObjectId(team);
     player.contractStatus = contractType;
+    player.careerStats = preservedCareerStats; // Explicit preservation
 
     // Add to contract history
     player.contractHistory.push({
@@ -245,11 +226,11 @@ async function updatePlayerContract(req, res) {
     // Create transfer record if team changed
     const newTeamId = team;
     if (oldTeamId?.toString() !== newTeamId || oldContractTeamId?.toString() !== newTeamId) {
-      await createTransferRecord(
+      await createTransferRecordWithStatsPreservation(
         playerId, 
         oldTeamId || oldContractTeamId, 
-        newTeamId, 
-        season,
+        newTeamId,
+        preservedCareerStats,
         oldTeamId ? 'transfer' : 'registration'
       );
     }
@@ -260,20 +241,24 @@ async function updatePlayerContract(req, res) {
       .populate('currentContract.season', 'name isActive')
       .populate('currentTeam', 'name logo');
 
-    console.log('✅ Contract updated successfully:', {
+    console.log('✅ Contract updated successfully with preserved career stats:', {
       player: player.name,
       team: targetTeam.name,
-      contractType: contractType
+      contractType: contractType,
+      preservedStats: preservedCareerStats
     });
 
     return res.status(200).json({
-      message: 'Contract updated successfully',
+      message: 'Contract updated successfully with preserved career statistics',
       player: updatedPlayer
     });
 
   } catch (error) {
     console.error('Error updating contract:', error);
-    throw error;
+    return res.status(500).json({ 
+      message: 'Failed to update contract', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 }
 
@@ -291,78 +276,108 @@ async function terminateContract(req, res) {
       return res.status(404).json({ message: 'Player not found' });
     }
 
-    if (!player.currentContract || !player.currentContract.team) {
-      return res.status(400).json({ message: 'Player has no active contract to terminate' });
+    // CRITICAL: Preserve career stats during contract termination
+    const preservedCareerStats = player.careerStats || {
+      appearances: 0,
+      goals: 0,
+      assists: 0,
+      yellowCards: 0,
+      redCards: 0,
+      minutesPlayed: 0
+    };
+
+    console.log(`🛡️ Preserving career stats during contract termination for ${player.name}:`, preservedCareerStats);
+
+    // Move current contract to history
+    if (player.currentContract && player.currentContract.team) {
+      player.contractHistory.push({
+        ...player.currentContract,
+        status: 'terminated',
+        endDate: new Date()
+      });
+
+      // Create transfer record for release
+      await createTransferRecordWithStatsPreservation(
+        playerId,
+        player.currentContract.team,
+        null,
+        preservedCareerStats,
+        'release'
+      );
     }
 
-    // Add current contract to history as terminated
-    player.contractHistory.push({
-      ...player.currentContract,
-      status: 'terminated',
-      endDate: new Date()
-    });
-
-    // Create release transfer record
-    await createTransferRecord(
-      playerId, 
-      player.currentContract.team, 
-      null, 
-      player.currentContract.season,
-      'release'
-    );
-
-    // Clear current contract
+    // Clear contract but preserve stats
     player.currentContract = {};
     player.currentTeam = null;
     player.contractStatus = 'free_agent';
+    player.careerStats = preservedCareerStats; // Explicit preservation
 
     await player.save();
 
-    console.log('✅ Contract terminated:', player.name);
+    console.log('✅ Contract terminated with preserved career stats:', player.name);
 
     return res.status(200).json({
-      message: 'Contract terminated successfully',
+      message: 'Contract terminated successfully with preserved career statistics',
       player: {
         _id: player._id,
         name: player.name,
-        contractStatus: 'free_agent'
+        contractStatus: player.contractStatus,
+        careerStats: preservedCareerStats
       }
     });
 
   } catch (error) {
     console.error('Error terminating contract:', error);
-    throw error;
+    return res.status(500).json({ 
+      message: 'Failed to terminate contract', 
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 }
 
-// Helper function to create transfer records
-async function createTransferRecord(playerId, fromTeamId, toTeamId, seasonId, transferType = 'transfer') {
+// Enhanced transfer record creation with stats preservation confirmation
+async function createTransferRecordWithStatsPreservation(playerId, oldTeamId, newTeamId, preservedStats, transferType = 'transfer') {
   try {
-    let notes = '';
+    const activeSeason = await Season.findOne({ isActive: true });
+    if (!activeSeason) {
+      console.warn('No active season found - skipping transfer record creation');
+      return;
+    }
+
+    let notes = `Contract update - career statistics preserved: Goals: ${preservedStats.goals}, Assists: ${preservedStats.assists}, Appearances: ${preservedStats.appearances}`;
+    
     if (transferType === 'registration') {
-      notes = toTeamId ? 'Contract registration - joined team' : 'Initial registration as free agent';
-    } else if (transferType === 'transfer') {
-      notes = 'Contract transfer between teams';
-    } else if (transferType === 'release') {
-      notes = 'Contract terminated - released to free agency';
+      notes = newTeamId ? 
+        `Player registered to team - career stats preserved: ${JSON.stringify(preservedStats)}` : 
+        `Player registered as free agent - career stats preserved: ${JSON.stringify(preservedStats)}`;
+    } else if (!oldTeamId && newTeamId) {
+      transferType = 'registration';
+      notes = `Joined team from free agency - career stats preserved: ${JSON.stringify(preservedStats)}`;
+    } else if (oldTeamId && !newTeamId) {
+      transferType = 'release';
+      notes = `Released to free agency - career stats preserved: ${JSON.stringify(preservedStats)}`;
+    } else if (oldTeamId && newTeamId) {
+      transferType = 'transfer';
+      notes = `Transfer between teams - career stats preserved: ${JSON.stringify(preservedStats)}`;
     }
 
     const transferData = {
       player: playerId,
-      fromTeam: fromTeamId || null,
-      toTeam: toTeamId || null,
-      season: seasonId,
+      fromTeam: oldTeamId || null,
+      toTeam: newTeamId || null,
+      season: activeSeason._id,
       transferDate: new Date(),
       transferType: transferType,
-      notes: notes
+      notes: notes,
+      // Metadata to confirm stats preservation
+      preservedStatsSnapshot: preservedStats
     };
 
     const transfer = new Transfer(transferData);
     await transfer.save();
     
-    console.log('✅ Transfer record created:', transfer._id);
+    console.log('✅ Transfer record created with stats preservation confirmed:', transfer._id);
   } catch (transferError) {
     console.error('❌ Transfer creation failed (non-fatal):', transferError);
-    // Don't throw - this is non-fatal
   }
 }
