@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: models/Player.js (UPDATED WITH CONTRACT STATUS)
+// FILE: models/Player.js (UPDATED - MANDATORY ID CARD)
 // ===========================================
 import mongoose from 'mongoose';
 
@@ -44,7 +44,7 @@ const careerStatsSchema = new mongoose.Schema({
   draws: { type: Number, default: 0 }
 }, { _id: false });
 
-// NEW: Contract history schema
+// UPDATED: Contract history schema
 const contractHistorySchema = new mongoose.Schema({
   team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
   season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season', required: true },
@@ -81,17 +81,29 @@ const transferHistorySchema = new mongoose.Schema({
 const playerSchema = new mongoose.Schema({
   name: { 
     type: String, 
-    required: true,
-    trim: true
+    required: [true, 'Player name is required'],
+    trim: true,
+    minlength: [2, 'Player name must be at least 2 characters long'],
+    maxlength: [100, 'Player name cannot exceed 100 characters']
   },
   
-  // ID CARD NUMBER - PRIVATE SKU (not shown to public)
+  // ID CARD NUMBER - NOW MANDATORY AND UNIQUE (not private anymore - used for verification)
   idCardNumber: {
     type: String,
+    required: [true, 'ID card number is required'], // NOW REQUIRED
     unique: true,
-    sparse: true, // Allows null values but enforces uniqueness when present
     trim: true,
-    index: true
+    index: true,
+    uppercase: true,
+    minlength: [5, 'ID card number must be at least 5 characters long'],
+    maxlength: [20, 'ID card number cannot exceed 20 characters'],
+    validate: {
+      validator: function(v) {
+        // Allow alphanumeric characters, hyphens, and slashes
+        return /^[A-Za-z0-9\-\/]+$/.test(v);
+      },
+      message: 'ID card number can only contain letters, numbers, hyphens, and slashes'
+    }
   },
   
   email: { 
@@ -99,58 +111,96 @@ const playerSchema = new mongoose.Schema({
     unique: true,
     sparse: true,
     trim: true,
-    lowercase: true
+    lowercase: true,
+    validate: {
+      validator: function(v) {
+        return !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+      },
+      message: 'Please provide a valid email address'
+    }
   },
+  
   phone: { 
     type: String,
-    trim: true
+    trim: true,
+    validate: {
+      validator: function(v) {
+        return !v || /^[\d\+\-\(\)\s]+$/.test(v);
+      },
+      message: 'Please provide a valid phone number'
+    }
   },
+  
   dateOfBirth: { 
-    type: Date 
+    type: Date,
+    validate: {
+      validator: function(v) {
+        if (!v) return true;
+        const today = new Date();
+        const minDate = new Date(today.getFullYear() - 100, 0, 1);
+        const maxDate = new Date(today.getFullYear() - 10, 11, 31);
+        return v >= minDate && v <= maxDate;
+      },
+      message: 'Date of birth must be between 10 and 100 years ago'
+    }
   },
+  
   nationality: { 
     type: String,
-    trim: true
+    trim: true,
+    maxlength: [50, 'Nationality cannot exceed 50 characters']
   },
   
   // FUTSAL: Position is optional since players can play multiple roles
   position: { 
     type: String, 
-    enum: ['Goalkeeper', 'Outfield Player'],
-    // No required: true - makes it optional for futsal
+    enum: {
+      values: ['Goalkeeper', 'Outfield Player'],
+      message: 'Position must be either Goalkeeper or Outfield Player'
+    }
   },
   
   jerseyNumber: { 
     type: Number,
-    min: 1,
-    max: 99,
+    min: [1, 'Jersey number must be between 1 and 99'],
+    max: [99, 'Jersey number must be between 1 and 99'],
     sparse: true // Allows null values but enforces uniqueness when present
   },
+  
   height: { 
-    type: Number // in cm
+    type: Number, // in cm
+    min: [100, 'Height must be at least 100 cm'],
+    max: [250, 'Height cannot exceed 250 cm']
   },
+  
   weight: { 
-    type: Number // in kg
+    type: Number, // in kg
+    min: [30, 'Weight must be at least 30 kg'],
+    max: [200, 'Weight cannot exceed 200 kg']
   },
+  
   photo: { 
     type: String // Cloudinary URL or direct URL string
   },
+  
   currentTeam: { 
     type: mongoose.Schema.Types.ObjectId, 
     ref: 'Team'
   },
+  
   status: {
     type: String,
     enum: ['active', 'inactive', 'injured', 'suspended', 'retired'],
     default: 'active'
   },
   
-  // NEW: Contract Information
+  // CONTRACT INFORMATION
   contractStatus: {
     type: String,
     enum: ['normal', 'seasonal', 'free_agent'],
     default: 'free_agent'
   },
+  
   currentContract: {
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
     season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season' },
@@ -180,7 +230,7 @@ const playerSchema = new mongoose.Schema({
   // History
   transferHistory: [transferHistorySchema],
   matchHistory: [matchHistorySchema],
-  contractHistory: [contractHistorySchema], // NEW: Track all contracts
+  contractHistory: [contractHistorySchema], // Contract tracking
   currentTeamHistory: [{
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
     season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season', required: true },
@@ -191,30 +241,50 @@ const playerSchema = new mongoose.Schema({
   
   // Additional Info
   emergencyContact: {
-    name: { type: String, trim: true },
-    phone: { type: String, trim: true },
-    relationship: { type: String, trim: true }
+    name: { 
+      type: String, 
+      trim: true,
+      maxlength: [100, 'Emergency contact name cannot exceed 100 characters'] 
+    },
+    phone: { 
+      type: String, 
+      trim: true 
+    },
+    relationship: { 
+      type: String, 
+      trim: true,
+      maxlength: [50, 'Emergency contact relationship cannot exceed 50 characters'] 
+    }
   },
   medicalInfo: {
-    bloodType: { type: String, trim: true },
+    bloodType: { 
+      type: String, 
+      trim: true,
+      enum: ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-', '']
+    },
     allergies: [{ type: String, trim: true }],
     conditions: [{ type: String, trim: true }],
-    notes: { type: String, trim: true }
+    notes: { 
+      type: String, 
+      trim: true,
+      maxlength: [1000, 'Medical notes cannot exceed 1000 characters']
+    }
   },
   notes: { 
     type: String,
-    trim: true
+    trim: true,
+    maxlength: [1000, 'Notes cannot exceed 1000 characters']
   }
 }, {
   timestamps: true
 });
 
-// Indexes for better performance
+// INDEXES for performance and uniqueness
 playerSchema.index({ currentTeam: 1, status: 1 });
 playerSchema.index({ email: 1 }, { sparse: true });
 playerSchema.index({ name: 1 });
-playerSchema.index({ idCardNumber: 1 }, { sparse: true, unique: true });
-playerSchema.index({ contractStatus: 1 }); // NEW: Index for contract queries
+playerSchema.index({ idCardNumber: 1 }, { unique: true }); // MANDATORY unique index
+playerSchema.index({ contractStatus: 1 }); // Contract queries
 
 // FIXED: Jersey number uniqueness only when both team and number exist
 playerSchema.index(
@@ -242,7 +312,7 @@ playerSchema.virtual('age').get(function() {
   return age;
 });
 
-// NEW: Virtual for transfer eligibility
+// Virtual for transfer eligibility
 playerSchema.virtual('isTransferEligible').get(function() {
   if (this.contractStatus === 'free_agent') return true;
   
@@ -277,7 +347,7 @@ playerSchema.methods.getSeasonStats = function(seasonId) {
   return this.seasonStats.get(seasonId.toString()) || null;
 };
 
-// NEW: Method to check if player can be transferred
+// Method to check if player can be transferred
 playerSchema.methods.canTransfer = async function(targetSeason) {
   if (this.contractStatus === 'free_agent') return { canTransfer: true, reason: 'Free agent' };
   
@@ -315,7 +385,7 @@ playerSchema.methods.canTransfer = async function(targetSeason) {
   return { canTransfer: false, reason: 'Unknown contract type' };
 };
 
-// NEW: Method to sign contract with team
+// Method to sign contract with team
 playerSchema.methods.signContract = function(contractData) {
   // End current contract if exists
   if (this.currentContract && this.currentContract.team) {
@@ -377,9 +447,28 @@ playerSchema.methods.addTransfer = function(transferData) {
   });
 };
 
-// UPDATED: Pre-save middleware with contract validation
+// UPDATED: Pre-save middleware with enhanced ID card validation
 playerSchema.pre('save', async function(next) {
   try {
+    // MANDATORY: Normalize ID card number
+    if (this.idCardNumber) {
+      this.idCardNumber = this.idCardNumber.trim().replace(/\s+/g, '').toUpperCase();
+    }
+    
+    // Check ID card number uniqueness manually (for better error messages)
+    if (this.isModified('idCardNumber')) {
+      const existingPlayer = await this.constructor.findOne({
+        idCardNumber: this.idCardNumber,
+        _id: { $ne: this._id }
+      });
+      
+      if (existingPlayer) {
+        const error = new Error(`Player with ID card number ${this.idCardNumber} already exists: ${existingPlayer.name}`);
+        error.code = 'DUPLICATE_ID_CARD';
+        return next(error);
+      }
+    }
+    
     // Only check jersey number if both team and jersey number are provided
     if (this.jerseyNumber && this.currentTeam && (this.isModified('jerseyNumber') || this.isModified('currentTeam'))) {
       const existingPlayer = await this.constructor.findOne({
@@ -396,21 +485,7 @@ playerSchema.pre('save', async function(next) {
       }
     }
     
-    // Check ID card number uniqueness
-    if (this.idCardNumber && this.isModified('idCardNumber')) {
-      const existingPlayer = await this.constructor.findOne({
-        idCardNumber: this.idCardNumber,
-        _id: { $ne: this._id }
-      });
-      
-      if (existingPlayer) {
-        const error = new Error(`Player with this ID card number already exists`);
-        error.code = 'DUPLICATE_ID_CARD';
-        return next(error);
-      }
-    }
-    
-    // NEW: Update contract status based on current contract
+    // Update contract status based on current contract
     if (this.currentContract && this.currentContract.team) {
       this.contractStatus = this.currentContract.contractType || 'normal';
     } else {
@@ -421,6 +496,11 @@ playerSchema.pre('save', async function(next) {
   } catch (error) {
     next(error);
   }
+});
+
+// Post-save middleware for logging
+playerSchema.post('save', function(doc) {
+  console.log(`Player ${doc.name} (ID: ${doc.idCardNumber}) saved successfully`);
 });
 
 export default mongoose.models.Player || mongoose.model('Player', playerSchema);
