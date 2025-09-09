@@ -134,27 +134,47 @@ export default function Home() {
         console.error('Error fetching recent matches:', error);
       }
 
-      // Fetch top players (goals and assists)
+      // Fetch top players (goals and assists) - FIXED VERSION
       try {
         const playersResponse = await fetch('/api/public/players');
         if (playersResponse.ok) {
           const playersData = await playersResponse.json();
           if (Array.isArray(playersData)) {
-            // Sort by goals (top scorers)
+            console.log('Raw players data sample:', playersData.slice(0, 3).map(p => ({
+              name: p.name,
+              careerGoals: p.careerStats?.goals,
+              statsGoals: p.stats?.goals,
+              careerAssists: p.careerStats?.assists,
+              statsAssists: p.stats?.assists
+            })));
+            
+            // Sort by goals (use careerStats first, fallback to stats, then 0)
             const scorers = playersData
-              .filter(p => (p.careerStats?.goals || 0) > 0)
-              .sort((a, b) => (b.careerStats?.goals || 0) - (a.careerStats?.goals || 0))
+              .map(player => ({
+                ...player,
+                // Normalize goals field - use careerStats first, then stats, then 0
+                normalizedGoals: player.careerStats?.goals || player.stats?.goals || 0,
+                normalizedAssists: player.careerStats?.assists || player.stats?.assists || 0
+              }))
+              .filter(p => p.normalizedGoals > 0)
+              .sort((a, b) => b.normalizedGoals - a.normalizedGoals)
               .slice(0, 5);
+            
             setTopScorers(scorers);
+            console.log('Top scorers after fix:', scorers.map(p => `${p.name}: ${p.normalizedGoals} goals`));
             
             // Sort by assists
             const assisters = playersData
-              .filter(p => (p.careerStats?.assists || 0) > 0)
-              .sort((a, b) => (b.careerStats?.assists || 0) - (a.careerStats?.assists || 0))
+              .map(player => ({
+                ...player,
+                normalizedAssists: player.careerStats?.assists || player.stats?.assists || 0
+              }))
+              .filter(p => p.normalizedAssists > 0)
+              .sort((a, b) => b.normalizedAssists - a.normalizedAssists)
               .slice(0, 5);
-            setTopAssists(assisters);
             
-            console.log('Top scorers:', scorers.length, 'Top assisters:', assisters.length);
+            setTopAssists(assisters);
+            console.log('Top assisters after fix:', assisters.map(p => `${p.name}: ${p.normalizedAssists} assists`));
           }
         }
       } catch (error) {
@@ -195,7 +215,8 @@ export default function Home() {
         if (Array.isArray(players)) {
           totalPlayers = players.length;
           totalGoals = players.reduce((sum, p) => {
-            const goals = p.stats?.goals || p.careerStats?.goals || 0;
+            // Use the same normalization logic for consistency
+            const goals = p.careerStats?.goals || p.stats?.goals || 0;
             return sum + goals;
           }, 0);
         }
@@ -480,7 +501,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Top Scorers */}
+        {/* Top Scorers - UPDATED */}
         <div className="xl:col-span-1">
           <div className="bg-white rounded-xl shadow-lg p-6 h-full">
             <div className="flex justify-between items-center mb-6">
@@ -495,26 +516,30 @@ export default function Home() {
             </div>
             <div className="space-y-3">
               {topScorers.slice(0, 5).map((player, index) => (
-                <div key={player._id} className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                      index === 0 ? 'bg-yellow-500 text-white' :
-                      index === 1 ? 'bg-gray-400 text-white' :
-                      index === 2 ? 'bg-yellow-600 text-white' :
-                      'bg-gray-200 text-gray-600'
-                    }`}>
-                      {index + 1}
+                <Link key={player._id} href={`/players/${player._id}`}>
+                  <div className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer">
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                        index === 0 ? 'bg-yellow-500 text-white' :
+                        index === 1 ? 'bg-gray-400 text-white' :
+                        index === 2 ? 'bg-yellow-600 text-white' :
+                        'bg-gray-200 text-gray-600'
+                      }`}>
+                        {index + 1}
+                      </div>
+                      <div>
+                        <p className="font-medium text-sm">{player.name}</p>
+                        <p className="text-xs text-gray-500">{player.currentTeam?.name || 'Free Agent'}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-medium text-sm">{player.name}</p>
-                      <p className="text-xs text-gray-500">{player.currentTeam?.name || 'Free Agent'}</p>
+                    <div className="text-right">
+                      <p className="font-bold text-lg text-red-600">
+                        {player.normalizedGoals || player.careerStats?.goals || player.stats?.goals || 0}
+                      </p>
+                      <p className="text-xs text-gray-500">goals</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-lg text-red-600">{player.careerStats?.goals || 0}</p>
-                    <p className="text-xs text-gray-500">goals</p>
-                  </div>
-                </div>
+                </Link>
               ))}
               {topScorers.length === 0 && (
                 <p className="text-gray-500 text-center py-8">No scoring data available</p>
