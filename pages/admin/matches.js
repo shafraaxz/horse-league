@@ -699,7 +699,7 @@ function EnhancedMatchForm({ match, teams, seasons, selectedSeason, onClose, onS
       id: Date.now(),
       type: eventType,
       team: team,
-      minute: 90, // Default to full match for completed games
+      minute: 40, // Default to full match for completed games
       player: playerId,
       playerName: playerName,
       description: `${eventType.replace('_', ' ').toUpperCase()} - ${playerName}`,
