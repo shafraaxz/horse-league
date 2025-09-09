@@ -1,4 +1,6 @@
-// FILE: pages/api/public/stats.js - ENHANCED VERSION
+// ===========================================
+// FILE 4: pages/api/public/stats.js (FIXED - Accurate Goal Calculation)
+// ===========================================
 import dbConnect from '../../../lib/mongodb';
 import Team from '../../../models/Team';
 import Player from '../../../models/Player';
@@ -29,7 +31,6 @@ export default async function handler(req, res) {
     
     if (seasonId && seasonId !== 'all') {
       matchQuery.season = seasonId;
-      // For players, we need to filter by teams in that season
       if (!teamId || teamId === 'all') {
         const teams = await Team.find({ season: seasonId }).select('_id');
         const teamIds = teams.map(team => team._id);
@@ -45,29 +46,21 @@ export default async function handler(req, res) {
       .populate('season')
       .then(team => team?.season?.isActive ? team.season : null);
 
-    // Fetch all data in parallel
+    // FIXED: Fetch ALL data in parallel without limits
     const [
       totalTeams,
       totalPlayers,
       allMatches,
-      allPlayers,
+      allPlayers, // Get ALL players
       totalTransfers
     ] = await Promise.all([
-      // Teams count with filters
       teamId && teamId !== 'all' 
         ? (teamId === 'free-agents' ? 0 : 1) 
         : Team.countDocuments({}),
       
-      // Players count with filters
       Player.countDocuments(playerQuery),
-      
-      // Matches with filters
       Match.find(matchQuery).lean(),
-      
-      // All players for goal calculation (with same filters)
-      Player.find(playerQuery).lean(),
-      
-      // Transfers count
+      Player.find(playerQuery).lean(), // No limit here
       Transfer.countDocuments({}).catch(() => 0)
     ]);
 
@@ -80,18 +73,21 @@ export default async function handler(req, res) {
     const liveMatchCount = liveMatches.length;
     const scheduledMatchCount = scheduledMatches.length;
 
-    // FIXED: Calculate total goals using ONLY careerStats for consistency
+    // FIXED: Calculate total goals using ONLY careerStats from ALL players
     const totalGoals = allPlayers.reduce((sum, player) => {
       return sum + (player.careerStats?.goals || 0);
     }, 0);
 
-    console.log('Goal calculation details (FIXED):', {
+    console.log('Goal calculation details (FIXED - ALL PLAYERS):', {
       totalPlayers: allPlayers.length,
       totalGoals,
-      samplePlayerStats: allPlayers.slice(0, 3).map(p => ({
-        name: p.name,
-        careerGoals: p.careerStats?.goals || 0
-      }))
+      samplePlayerStats: allPlayers
+        .filter(p => (p.careerStats?.goals || 0) > 0)
+        .slice(0, 5)
+        .map(p => ({
+          name: p.name,
+          careerGoals: p.careerStats?.goals || 0
+        }))
     });
 
     // Calculate match completion rate
@@ -137,10 +133,11 @@ export default async function handler(req, res) {
       } : null
     };
 
-    console.log('📊 Stats API Response (FIXED):', {
+    console.log('📊 Stats API Response (FIXED - ALL PLAYERS):', {
       totalGoals: stats.totalGoals,
       totalPlayers: stats.totalPlayers,
       avgGoalsPerMatch: stats.avgGoalsPerMatch,
+      playersQueried: allPlayers.length,
       filters: stats.filters
     });
 
