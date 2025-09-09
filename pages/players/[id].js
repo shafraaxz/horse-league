@@ -889,88 +889,197 @@ export default function PlayerProfile() {
 
         {/* Enhanced Matches Tab */}
         {activeTab === 'matches' && (
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold">Match History</h3>
-              <div className="text-sm text-gray-600">
-                {playerMatches.length} matches found
+          <div className="space-y-6">
+            {/* Match History Options */}
+            <div className="bg-white rounded-xl shadow-lg p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xl font-bold">Match History</h3>
+                <div className="text-sm text-gray-600">
+                  {playerMatches.length} matches found
+                </div>
               </div>
-            </div>
-            
-            {playerMatches.length > 0 ? (
-              <div className="space-y-4">
-                {playerMatches.map((match, index) => {
-                  const isPlayerTeamHome = match.homeTeam?._id === player.currentTeam?._id;
-                  const teamScore = isPlayerTeamHome ? match.homeScore : match.awayScore;
-                  const opponentScore = isPlayerTeamHome ? match.awayScore : match.homeScore;
-                  const opponent = isPlayerTeamHome ? match.awayTeam : match.homeTeam;
-                  
-                  let result = '';
-                  let resultColor = '';
-                  if (match.status === 'completed') {
-                    if (teamScore > opponentScore) {
-                      result = 'W';
-                      resultColor = 'bg-green-500 text-white';
-                    } else if (teamScore < opponentScore) {
-                      result = 'L';
-                      resultColor = 'bg-red-500 text-white';
-                    } else {
-                      result = 'D';
-                      resultColor = 'bg-yellow-500 text-white';
-                    }
-                  }
-                  
-                  return (
-                    <div key={match._id || index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="text-sm text-gray-600 w-16">
-                            {formatMatchDate(match.matchDate)}
-                          </div>
-                          <div className="font-medium flex-1">
-                            {isPlayerTeamHome ? 'vs' : '@'} {opponent?.name}
-                          </div>
-                          {match.venue && (
-                            <div className="text-sm text-gray-500 hidden md:block">
-                              at {match.venue}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-3">
-                          {match.status === 'completed' && (
-                            <>
-                              <div className="font-bold text-lg">
-                                {teamScore} - {opponentScore}
+
+              {/* Info Banner */}
+              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-start space-x-3">
+                  <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <h4 className="font-semibold text-blue-900 mb-1">Match History Display</h4>
+                    <p className="text-blue-800 text-sm mb-2">
+                      Currently showing matches from <strong>{player.currentTeam?.name || "the player's team"}</strong> during their active period.
+                    </p>
+                    <div className="text-xs text-blue-700">
+                      <strong>Note:</strong> Individual player participation tracking (substitutions, minutes played, specific match events) 
+                      is not yet implemented in the current system. This shows team matches during the player's contract period.
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {playerMatches.length > 0 ? (
+                <div className="space-y-4">
+                  {playerMatches.map((match, index) => {
+                    // Determine if this was a match where the player's team participated
+                    const playerTeams = [
+                      player.currentTeam?._id,
+                      // Add historical teams if available in player data
+                      ...(player.contractHistory?.map(contract => contract.team?._id) || [])
+                    ].filter(Boolean);
+
+                    const isPlayerTeamHome = playerTeams.includes(match.homeTeam?._id);
+                    const isPlayerTeamAway = playerTeams.includes(match.awayTeam?._id);
+                    const isPlayerInvolved = isPlayerTeamHome || isPlayerTeamAway;
+
+                    // If player not involved in this match, skip or mark as unclear
+                    if (!isPlayerInvolved) {
+                      return (
+                        <div key={match._id || index} className="border border-yellow-200 bg-yellow-50 rounded-lg p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-4">
+                              <div className="text-sm text-yellow-700 w-16">
+                                {formatMatchDate(match.matchDate)}
                               </div>
-                              {result && (
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${resultColor}`}>
-                                  {result}
+                              <div className="font-medium text-yellow-800">
+                                {match.homeTeam?.name} vs {match.awayTeam?.name}
+                              </div>
+                              <div className="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded-full">
+                                Team Unknown
+                              </div>
+                            </div>
+                            <div className="text-yellow-600 text-sm">
+                              Player team unclear
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const teamScore = isPlayerTeamHome ? match.homeScore : match.awayScore;
+                    const opponentScore = isPlayerTeamHome ? match.awayScore : match.homeScore;
+                    const opponent = isPlayerTeamHome ? match.awayTeam : match.homeTeam;
+                    const playerTeam = isPlayerTeamHome ? match.homeTeam : match.awayTeam;
+                    
+                    let result = '';
+                    let resultColor = '';
+                    if (match.status === 'completed') {
+                      if (teamScore > opponentScore) {
+                        result = 'W';
+                        resultColor = 'bg-green-500 text-white';
+                      } else if (teamScore < opponentScore) {
+                        result = 'L';
+                        resultColor = 'bg-red-500 text-white';
+                      } else {
+                        result = 'D';
+                        resultColor = 'bg-yellow-500 text-white';
+                      }
+                    }
+                    
+                    return (
+                      <div key={match._id || index} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="text-sm text-gray-600 w-16">
+                              {formatMatchDate(match.matchDate)}
+                            </div>
+                            <div className="flex flex-col">
+                              <div className="font-medium">
+                                <span className="text-blue-600">{playerTeam?.name}</span>
+                                <span className="mx-2 text-gray-400">{isPlayerTeamHome ? 'vs' : '@'}</span>
+                                <span>{opponent?.name}</span>
+                              </div>
+                              {match.venue && (
+                                <div className="text-xs text-gray-500">
+                                  at {match.venue}
                                 </div>
                               )}
-                            </>
-                          )}
-                          {match.status === 'scheduled' && (
-                            <div className="text-blue-600 text-sm">
-                              {format(new Date(match.matchDate), 'HH:mm')}
                             </div>
-                          )}
-                          <Link href={`/matches/${match._id}`} className="text-blue-600 hover:text-blue-800 text-sm flex items-center">
-                            <Eye className="w-4 h-4 mr-1" />
-                            View
-                          </Link>
+                            
+                            {/* Player Participation Status */}
+                            <div className="hidden md:flex items-center space-x-2">
+                              {/* This would be where actual participation data goes */}
+                              <div className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full">
+                                Team Match
+                              </div>
+                              {/* Future: Add participation indicators like:
+                                  - Started / Substitute / Bench
+                                  - Minutes played
+                                  - Goals/assists in this match
+                              */}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center space-x-3">
+                            {match.status === 'completed' && (
+                              <>
+                                <div className="font-bold text-lg">
+                                  {teamScore} - {opponentScore}
+                                </div>
+                                {result && (
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${resultColor}`}>
+                                    {result}
+                                  </div>
+                                )}
+                              </>
+                            )}
+                            {match.status === 'scheduled' && (
+                              <div className="text-blue-600 text-sm">
+                                {format(new Date(match.matchDate), 'HH:mm')}
+                              </div>
+                            )}
+                            {match.status === 'live' && (
+                              <div className="text-red-600 text-sm font-medium animate-pulse">
+                                LIVE
+                              </div>
+                            )}
+                            <Link href={`/matches/${match._id}`} className="text-blue-600 hover:text-blue-800 text-sm flex items-center">
+                              <Eye className="w-4 h-4 mr-1" />
+                              View
+                            </Link>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h4 className="text-lg font-semibold text-gray-700 mb-2">No Match History</h4>
+                  <p className="text-gray-500 mb-4">No match history available for this player's current team</p>
+                  {player.currentTeam && (
+                    <Link 
+                      href={`/teams/${player.currentTeam._id}`}
+                      className="text-blue-600 hover:text-blue-800 text-sm"
+                    >
+                      View {player.currentTeam.name} matches →
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Future Enhancement Placeholder */}
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-6">
+              <h4 className="font-semibold text-gray-800 mb-3 flex items-center">
+                <Zap className="w-5 h-5 mr-2 text-gray-600" />
+                Future Enhancement: Individual Match Tracking
+              </h4>
+              <div className="text-sm text-gray-600 space-y-2">
+                <p>
+                  <strong>Coming Soon:</strong> Detailed player participation tracking including:
+                </p>
+                <ul className="list-disc list-inside space-y-1 ml-4">
+                  <li>Starting lineup vs. substitute appearances</li>
+                  <li>Minutes played per match</li>
+                  <li>Goals, assists, and cards in specific matches</li>
+                  <li>Player performance ratings per match</li>
+                  <li>Substitution timing and reasons</li>
+                </ul>
+                <p className="mt-3 text-xs text-gray-500">
+                  This requires implementing player participation tracking in the match management system.
+                </p>
               </div>
-            ) : (
-              <div className="text-center py-12">
-                <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h4 className="text-lg font-semibold text-gray-700 mb-2">No Match History</h4>
-                <p className="text-gray-500">No match history available for this player</p>
-              </div>
-            )}
+            </div>
           </div>
         )}
 
