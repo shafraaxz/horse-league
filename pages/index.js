@@ -501,7 +501,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Top Scorers - UPDATED */}
+        {/* Top Scorers - FIXED LINKS */}
         <div className="xl:col-span-1">
           <div className="bg-white rounded-xl shadow-lg p-6 h-full">
             <div className="flex justify-between items-center mb-6">
@@ -516,30 +516,30 @@ export default function Home() {
             </div>
             <div className="space-y-3">
               {topScorers.slice(0, 5).map((player, index) => (
-                <Link key={player._id} href={`/players/${player._id}`}>
-                  <div className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                        index === 0 ? 'bg-yellow-500 text-white' :
-                        index === 1 ? 'bg-gray-400 text-white' :
-                        index === 2 ? 'bg-yellow-600 text-white' :
-                        'bg-gray-200 text-gray-600'
-                      }`}>
-                        {index + 1}
-                      </div>
-                      <div>
+                <div key={player._id} className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      index === 0 ? 'bg-yellow-500 text-white' :
+                      index === 1 ? 'bg-gray-400 text-white' :
+                      index === 2 ? 'bg-yellow-600 text-white' :
+                      'bg-gray-200 text-gray-600'
+                    }`}>
+                      {index + 1}
+                    </div>
+                    <div>
+                      <Link href={`/players/${player._id}`} className="block hover:text-blue-600 transition-colors">
                         <p className="font-medium text-sm">{player.name}</p>
                         <p className="text-xs text-gray-500">{player.currentTeam?.name || 'Free Agent'}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-bold text-lg text-red-600">
-                        {player.normalizedGoals || player.careerStats?.goals || player.stats?.goals || 0}
-                      </p>
-                      <p className="text-xs text-gray-500">goals</p>
+                      </Link>
                     </div>
                   </div>
-                </Link>
+                  <div className="text-right">
+                    <p className="font-bold text-lg text-red-600">
+                      {player.normalizedGoals || player.careerStats?.goals || player.stats?.goals || 0}
+                    </p>
+                    <p className="text-xs text-gray-500">goals</p>
+                  </div>
+                </div>
               ))}
               {topScorers.length === 0 && (
                 <p className="text-gray-500 text-center py-8">No scoring data available</p>
