@@ -1,95 +1,123 @@
 // ===========================================
-// FILE: pages/api/admin/fairplay.js (CLEAN VERSION)
+// FILE: pages/api/admin/fairplay.js (ENHANCED WITH OFFICIAL SUPPORT)
 // ===========================================
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '../auth/[...nextauth]';
-import { connectToDatabase } from '../../../lib/mongodb';
+import dbConnect from '../../../lib/mongodb';
 import FairPlayRecord from '../../../models/FairPlayRecord';
-import Player from '../../../models/Player';
-import Team from '../../../models/Team';
-import Season from '../../../models/Season';
 import mongoose from 'mongoose';
 
 export default async function handler(req, res) {
   try {
+    await dbConnect();
+    
     const session = await getServerSession(req, res, authOptions);
-
     if (!session || session.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Access denied. Admin rights required.' });
+      return res.status(403).json({ message: 'Admin access required' });
     }
-
-    await connectToDatabase();
 
     switch (req.method) {
       case 'GET':
-        return await getFairPlayRecords(req, res, session);
+        return await getFairPlayRecords(req, res);
       case 'POST':
         return await createFairPlayRecord(req, res, session);
       case 'PUT':
-        return await updateFairPlayRecord(req, res, session);
+        return await updateFairPlayRecord(req, res);
       case 'DELETE':
         return await deleteFairPlayRecord(req, res);
       default:
         return res.status(405).json({ message: 'Method not allowed' });
     }
   } catch (error) {
-    console.error('Fair Play API Error:', error);
+    console.error('Fair Play API error:', error);
     return res.status(500).json({ 
-      message: 'Server error', 
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      message: 'Internal server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Server error'
     });
   }
 }
 
-// GET - Fetch fair play records with filters
-async function getFairPlayRecords(req, res, session) {
+// GET - Fetch fair play records with enhanced filtering
+async function getFairPlayRecords(req, res) {
   try {
-    const { seasonId, teamId, status, playerId, limit = 100 } = req.query;
+    const { season, team, status = 'all', subjectType = 'all' } = req.query;
     
-    let query = {};
+    const filter = {};
     
-    // Add filters
-    if (seasonId && mongoose.Types.ObjectId.isValid(seasonId)) {
-      query.season = new mongoose.Types.ObjectId(seasonId);
+    if (season) {
+      filter.season = season;
     }
     
-    if (teamId && mongoose.Types.ObjectId.isValid(teamId)) {
-      query.team = new mongoose.Types.ObjectId(teamId);
+    if (team) {
+      filter.team = team;
     }
     
-    if (playerId && mongoose.Types.ObjectId.isValid(playerId)) {
-      query.player = new mongoose.Types.ObjectId(playerId);
+    if (status !== 'all') {
+      filter.status = status;
     }
     
-    if (status && status !== 'all') {
-      query.status = status;
+    // Enhanced subject type filtering
+    if (subjectType !== 'all') {
+      switch (subjectType) {
+        case 'player':
+          filter.isOfficial = false;
+          filter.player = { $ne: null };
+          break;
+        case 'official':
+          filter.isOfficial = true;
+          break;
+        case 'team':
+          filter.isOfficial = false;
+          filter.player = null;
+          break;
+      }
     }
 
-    const records = await FairPlayRecord.find(query)
+    const records = await FairPlayRecord.find(filter)
       .populate('team', 'name logo')
-      .populate('player', 'name jerseyNumber photo')
-      .populate('season', 'name')
+      .populate('player', 'name jerseyNumber position')
+      .populate('season', 'name isActive')
       .populate('addedBy', 'name')
-      .sort({ actionDate: -1, createdAt: -1 })
-      .limit(parseInt(limit))
-      .lean();
+      .sort({ actionDate: -1, createdAt: -1 });
 
-    console.log(`Fetched ${records.length} fair play records`);
-    
-    return res.status(200).json(records);
+    // Enhanced statistics
+    const stats = {
+      total: records.length,
+      byStatus: {
+        active: records.filter(r => r.status === 'active').length,
+        appealed: records.filter(r => r.status === 'appealed').length,
+        overturned: records.filter(r => r.status === 'overturned').length,
+        reduced: records.filter(r => r.status === 'reduced').length
+      },
+      bySubject: {
+        players: records.filter(r => !r.isOfficial && r.player).length,
+        officials: records.filter(r => r.isOfficial).length,
+        teams: records.filter(r => !r.isOfficial && !r.player).length
+      },
+      totalActivePoints: records
+        .filter(r => r.status === 'active')
+        .reduce((sum, r) => sum + r.points, 0)
+    };
+
+    return res.status(200).json({
+      records,
+      stats
+    });
+
   } catch (error) {
     console.error('Error fetching fair play records:', error);
     throw error;
   }
 }
 
-// POST - Create new fair play record
+// POST - Create new fair play record with enhanced validation
 async function createFairPlayRecord(req, res, session) {
   try {
     const {
       team,
       player,
+      customName,
+      isOfficial,
       season,
       actionType,
       points,
@@ -98,16 +126,15 @@ async function createFairPlayRecord(req, res, session) {
       reference
     } = req.body;
 
-    // Validate required fields
-    if (!team || !season || !actionType || !points || !description) {
+    // Enhanced validation
+    if (!team || !season || !actionType || !points || !description || !actionDate) {
       return res.status(400).json({ 
-        message: 'Team, season, action type, points, and description are required' 
+        message: 'Missing required fields: team, season, actionType, points, description, and actionDate are required' 
       });
     }
 
     // Validate ObjectIds
-    if (!mongoose.Types.ObjectId.isValid(team) || 
-        !mongoose.Types.ObjectId.isValid(season)) {
+    if (!mongoose.Types.ObjectId.isValid(team) || !mongoose.Types.ObjectId.isValid(season)) {
       return res.status(400).json({ message: 'Invalid team or season ID' });
     }
 
@@ -115,67 +142,75 @@ async function createFairPlayRecord(req, res, session) {
       return res.status(400).json({ message: 'Invalid player ID' });
     }
 
-    // Validate team exists
-    const teamExists = await Team.findById(team);
-    if (!teamExists) {
-      return res.status(404).json({ message: 'Team not found' });
+    // Enhanced subject validation
+    if (isOfficial && !customName?.trim()) {
+      return res.status(400).json({ 
+        message: 'Custom name is required for official misconduct' 
+      });
     }
 
-    // Validate season exists
-    const seasonExists = await Season.findById(season);
-    if (!seasonExists) {
-      return res.status(404).json({ message: 'Season not found' });
+    if (!isOfficial && !player && !customName?.trim()) {
+      return res.status(400).json({ 
+        message: 'Either player or custom name must be provided for non-official misconduct' 
+      });
     }
 
-    // Validate player exists and belongs to team (if specified)
-    if (player) {
-      const playerExists = await Player.findById(player);
-      if (!playerExists) {
-        return res.status(404).json({ message: 'Player not found' });
-      }
-      
-      if (playerExists.currentTeam?.toString() !== team) {
-        return res.status(400).json({ 
-          message: 'Player does not belong to the specified team' 
-        });
-      }
-    }
-
-    // Validate points
+    // Points validation
     if (points < 1 || points > 100) {
-      return res.status(400).json({ message: 'Points must be between 1 and 100' });
+      return res.status(400).json({ 
+        message: 'Points must be between 1 and 100' 
+      });
     }
 
-    // Create fair play record
+    // Create record
     const recordData = {
       team: new mongoose.Types.ObjectId(team),
       season: new mongoose.Types.ObjectId(season),
       actionType,
       points: parseInt(points),
       description: description.trim(),
-      actionDate: actionDate || new Date(),
-      reference: reference?.trim() || null,
+      actionDate: new Date(actionDate),
       addedBy: new mongoose.Types.ObjectId(session.user.id),
-      status: 'active'
+      isOfficial: Boolean(isOfficial)
     };
 
-    // Add optional fields
-    if (player) {
+    // Add optional fields based on subject type
+    if (isOfficial) {
+      recordData.customName = customName.trim();
+      recordData.player = null;
+    } else if (player) {
       recordData.player = new mongoose.Types.ObjectId(player);
+      recordData.customName = null;
+    } else {
+      // Team penalty
+      recordData.customName = customName?.trim() || null;
+      recordData.player = null;
+    }
+
+    if (reference?.trim()) {
+      recordData.reference = reference.trim();
     }
 
     const newRecord = new FairPlayRecord(recordData);
-    const savedRecord = await newRecord.save();
+    await newRecord.save();
 
-    // Populate the result for response
-    const populatedRecord = await FairPlayRecord.findById(savedRecord._id)
+    // Populate for response
+    const populatedRecord = await FairPlayRecord.findById(newRecord._id)
       .populate('team', 'name logo')
       .populate('player', 'name jerseyNumber')
       .populate('season', 'name')
-      .populate('addedBy', 'name')
-      .lean();
+      .populate('addedBy', 'name');
 
-    console.log('Fair play record created:', populatedRecord._id);
+    console.log('Fair play record created:', {
+      id: populatedRecord._id,
+      team: populatedRecord.team.name,
+      subject: populatedRecord.isOfficial ? 
+        `Official: ${populatedRecord.customName}` : 
+        populatedRecord.player ? 
+          `Player: ${populatedRecord.player.name}` : 
+          'Team penalty',
+      points: populatedRecord.points
+    });
 
     return res.status(201).json({
       message: 'Fair play record created successfully',
@@ -198,9 +233,23 @@ async function createFairPlayRecord(req, res, session) {
 }
 
 // PUT - Update fair play record
-async function updateFairPlayRecord(req, res, session) {
+async function updateFairPlayRecord(req, res) {
   try {
-    const { id } = req.body;
+    const { id } = req.query;
+    const {
+      team,
+      player,
+      customName,
+      isOfficial,
+      season,
+      actionType,
+      points,
+      description,
+      actionDate,
+      reference,
+      status,
+      appealNotes
+    } = req.body;
 
     if (!id) {
       return res.status(400).json({ message: 'Record ID is required' });
@@ -215,58 +264,66 @@ async function updateFairPlayRecord(req, res, session) {
       return res.status(404).json({ message: 'Fair play record not found' });
     }
 
-    const {
-      team,
-      player,
-      season,
-      actionType,
-      points,
-      description,
-      actionDate,
-      reference,
-      status,
-      appealNotes
-    } = req.body;
+    // Prepare update data
+    const updateData = {};
 
-    // Validate required fields
-    if (!team || !season || !actionType || !points || !description) {
-      return res.status(400).json({ 
-        message: 'Team, season, action type, points, and description are required' 
-      });
+    // Basic fields
+    if (team) updateData.team = new mongoose.Types.ObjectId(team);
+    if (season) updateData.season = new mongoose.Types.ObjectId(season);
+    if (actionType) updateData.actionType = actionType;
+    if (description) updateData.description = description.trim();
+    if (actionDate) updateData.actionDate = new Date(actionDate);
+    if (reference !== undefined) updateData.reference = reference?.trim() || null;
+
+    // Enhanced subject handling
+    if (isOfficial !== undefined) {
+      updateData.isOfficial = Boolean(isOfficial);
+      
+      if (isOfficial) {
+        if (!customName?.trim()) {
+          return res.status(400).json({ 
+            message: 'Custom name is required for official misconduct' 
+          });
+        }
+        updateData.customName = customName.trim();
+        updateData.player = null;
+      } else {
+        updateData.customName = customName?.trim() || null;
+        if (player) {
+          updateData.player = new mongoose.Types.ObjectId(player);
+        }
+      }
     }
 
-    // Prepare update data
-    const updateData = {
-      team: new mongoose.Types.ObjectId(team),
-      season: new mongoose.Types.ObjectId(season),
-      actionType,
-      points: parseInt(points),
-      description: description.trim(),
-      actionDate: actionDate || existingRecord.actionDate,
-      reference: reference?.trim() || null,
-      status: status || existingRecord.status
-    };
-
-    // Handle status changes
-    if (status && status !== existingRecord.status) {
-      if (status === 'reduced' && !existingRecord.originalPoints) {
+    // Points with appeal handling
+    if (points !== undefined) {
+      const newPoints = parseInt(points);
+      if (newPoints < 1 || newPoints > 100) {
+        return res.status(400).json({ 
+          message: 'Points must be between 1 and 100' 
+        });
+      }
+      
+      // Store original points if reducing for first time
+      if (newPoints < existingRecord.points && !existingRecord.originalPoints) {
         updateData.originalPoints = existingRecord.points;
       }
+      
+      updateData.points = newPoints;
+    }
+
+    // Status handling
+    if (status) {
+      updateData.status = status;
       
       if (status === 'appealed' && !existingRecord.appealDate) {
         updateData.appealDate = new Date();
       }
     }
 
-    // Add optional fields
-    if (player) {
-      updateData.player = new mongoose.Types.ObjectId(player);
-    } else {
-      updateData.player = null;
-    }
-
-    if (appealNotes) {
-      updateData.appealNotes = appealNotes.trim();
+    // Appeal notes
+    if (appealNotes !== undefined) {
+      updateData.appealNotes = appealNotes?.trim() || null;
     }
 
     const updatedRecord = await FairPlayRecord.findByIdAndUpdate(
@@ -278,7 +335,10 @@ async function updateFairPlayRecord(req, res, session) {
      .populate('season', 'name')
      .populate('addedBy', 'name');
 
-    console.log('Fair play record updated:', updatedRecord._id);
+    console.log('Fair play record updated:', {
+      id: updatedRecord._id,
+      changes: Object.keys(updateData)
+    });
 
     return res.status(200).json({
       message: 'Fair play record updated successfully',
@@ -320,7 +380,14 @@ async function deleteFairPlayRecord(req, res) {
 
     await FairPlayRecord.findByIdAndDelete(id);
 
-    console.log('Fair play record deleted:', id);
+    console.log('Fair play record deleted:', {
+      id,
+      subject: record.isOfficial ? 
+        `Official: ${record.customName}` : 
+        record.player ? 
+          `Player: ${record.player}` : 
+          'Team penalty'
+    });
 
     return res.status(200).json({
       message: 'Fair play record deleted successfully'
