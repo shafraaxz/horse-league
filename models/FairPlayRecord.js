@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: models/FairPlayRecord.js (YOUR ORIGINAL)
+// FILE: models/FairPlayRecord.js (ENHANCED WITH OFFICIAL SUPPORT)
 // ===========================================
 import mongoose from 'mongoose';
 
@@ -13,8 +13,21 @@ const fairPlayRecordSchema = new mongoose.Schema({
   player: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Player',
-    default: null // Null means it's a team-wide penalty
+    default: null // Null means it's a team-wide penalty or official
   },
+  
+  // NEW: Official/Custom name support
+  customName: {
+    type: String,
+    default: null,
+    trim: true,
+    maxlength: 100
+  },
+  isOfficial: {
+    type: Boolean,
+    default: false // True for officials, false for players
+  },
+  
   season: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Season',
@@ -55,7 +68,8 @@ const fairPlayRecordSchema = new mongoose.Schema({
   },
   reference: {
     type: String, // Case/incident reference number
-    default: null
+    default: null,
+    trim: true
   },
   
   // Administrative
@@ -97,13 +111,47 @@ fairPlayRecordSchema.index({ team: 1, season: 1 });
 fairPlayRecordSchema.index({ player: 1, season: 1 });
 fairPlayRecordSchema.index({ season: 1, actionDate: -1 });
 fairPlayRecordSchema.index({ status: 1 });
+fairPlayRecordSchema.index({ isOfficial: 1 });
 
 // Virtual for display name
 fairPlayRecordSchema.virtual('displayName').get(function() {
-  if (this.player) {
-    return `${this.player.name} (Individual)`;
+  if (this.isOfficial && this.customName) {
+    return `${this.customName} (Official)`;
   }
-  return `${this.team.name} (Team)`;
+  if (this.player && this.player.name) {
+    return `${this.player.name} (Player)`;
+  }
+  if (this.customName) {
+    return `${this.customName} (Custom)`;
+  }
+  return `${this.team?.name || 'Unknown Team'} (Team)`;
+});
+
+// Virtual for subject type
+fairPlayRecordSchema.virtual('subjectType').get(function() {
+  if (this.isOfficial) return 'official';
+  if (this.player) return 'player';
+  return 'team';
+});
+
+// Pre-save validation
+fairPlayRecordSchema.pre('save', function(next) {
+  // Ensure either player or customName is provided for officials
+  if (this.isOfficial && !this.customName) {
+    return next(new Error('Custom name is required for official misconduct'));
+  }
+  
+  // Ensure player is provided for non-officials (unless it's a team penalty)
+  if (!this.isOfficial && !this.player && !this.customName) {
+    return next(new Error('Either player or custom name must be provided'));
+  }
+  
+  // Clear player field if it's an official
+  if (this.isOfficial) {
+    this.player = null;
+  }
+  
+  next();
 });
 
 // Ensure virtuals are included in JSON
