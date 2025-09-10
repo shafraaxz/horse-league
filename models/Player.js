@@ -1,8 +1,9 @@
 // ===========================================
-// FILE: models/Player.js (UPDATED - MANDATORY ID CARD)
+// FILE: models/Player.js (UPDATED WITH ENHANCED OWN GOALS SUPPORT)
 // ===========================================
 import mongoose from 'mongoose';
 
+// ENHANCED: Match history schema with own goals tracking
 const matchHistorySchema = new mongoose.Schema({
   match: { type: mongoose.Schema.Types.ObjectId, ref: 'Match', required: true },
   season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season', required: true },
@@ -13,16 +14,19 @@ const matchHistorySchema = new mongoose.Schema({
   awayTeam: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
   result: { type: String, enum: ['win', 'loss', 'draw'], required: true },
   goals: { type: Number, default: 0 },
+  ownGoals: { type: Number, default: 0 }, // NEW: Own goals tracking
   assists: { type: Number, default: 0 },
   yellowCards: { type: Number, default: 0 },
   redCards: { type: Number, default: 0 },
   minutesPlayed: { type: Number, default: 0 }
 }, { _id: false });
 
+// ENHANCED: Season stats schema with own goals tracking
 const seasonStatsSchema = new mongoose.Schema({
   season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season', required: true },
   appearances: { type: Number, default: 0 },
   goals: { type: Number, default: 0 },
+  ownGoals: { type: Number, default: 0 }, // NEW: Own goals tracking
   assists: { type: Number, default: 0 },
   yellowCards: { type: Number, default: 0 },
   redCards: { type: Number, default: 0 },
@@ -32,9 +36,11 @@ const seasonStatsSchema = new mongoose.Schema({
   draws: { type: Number, default: 0 }
 }, { _id: false });
 
+// ENHANCED: Career stats schema with own goals tracking
 const careerStatsSchema = new mongoose.Schema({
   appearances: { type: Number, default: 0 },
   goals: { type: Number, default: 0 },
+  ownGoals: { type: Number, default: 0 }, // NEW: Own goals tracking
   assists: { type: Number, default: 0 },
   yellowCards: { type: Number, default: 0 },
   redCards: { type: Number, default: 0 },
@@ -44,7 +50,7 @@ const careerStatsSchema = new mongoose.Schema({
   draws: { type: Number, default: 0 }
 }, { _id: false });
 
-// UPDATED: Contract history schema
+// Contract history schema (unchanged)
 const contractHistorySchema = new mongoose.Schema({
   team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
   season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season', required: true },
@@ -64,6 +70,7 @@ const contractHistorySchema = new mongoose.Schema({
   notes: { type: String, default: '' }
 }, { timestamps: true });
 
+// Transfer history schema (unchanged)
 const transferHistorySchema = new mongoose.Schema({
   fromTeam: { type: mongoose.Schema.Types.ObjectId, ref: 'Team' },
   toTeam: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
@@ -87,10 +94,10 @@ const playerSchema = new mongoose.Schema({
     maxlength: [100, 'Player name cannot exceed 100 characters']
   },
   
-  // ID CARD NUMBER - NOW MANDATORY AND UNIQUE (not private anymore - used for verification)
+  // ID CARD NUMBER - MANDATORY AND UNIQUE
   idCardNumber: {
     type: String,
-    required: [true, 'ID card number is required'], // NOW REQUIRED
+    required: [true, 'ID card number is required'],
     unique: true,
     trim: true,
     index: true,
@@ -216,7 +223,7 @@ const playerSchema = new mongoose.Schema({
     notes: { type: String, default: '' }
   },
   
-  // Statistics
+  // ENHANCED: Statistics with own goals support
   seasonStats: {
     type: Map,
     of: seasonStatsSchema,
@@ -224,13 +231,24 @@ const playerSchema = new mongoose.Schema({
   },
   careerStats: {
     type: careerStatsSchema,
-    default: () => ({})
+    default: () => ({
+      appearances: 0,
+      goals: 0,
+      ownGoals: 0, // NEW: Initialize own goals
+      assists: 0,
+      yellowCards: 0,
+      redCards: 0,
+      minutesPlayed: 0,
+      wins: 0,
+      losses: 0,
+      draws: 0
+    })
   },
   
   // History
   transferHistory: [transferHistorySchema],
   matchHistory: [matchHistorySchema],
-  contractHistory: [contractHistorySchema], // Contract tracking
+  contractHistory: [contractHistorySchema],
   currentTeamHistory: [{
     team: { type: mongoose.Schema.Types.ObjectId, ref: 'Team', required: true },
     season: { type: mongoose.Schema.Types.ObjectId, ref: 'Season', required: true },
@@ -283,10 +301,10 @@ const playerSchema = new mongoose.Schema({
 playerSchema.index({ currentTeam: 1, status: 1 });
 playerSchema.index({ email: 1 }, { sparse: true });
 playerSchema.index({ name: 1 });
-playerSchema.index({ idCardNumber: 1 }, { unique: true }); // MANDATORY unique index
-playerSchema.index({ contractStatus: 1 }); // Contract queries
+playerSchema.index({ idCardNumber: 1 }, { unique: true });
+playerSchema.index({ contractStatus: 1 });
 
-// FIXED: Jersey number uniqueness only when both team and number exist
+// Jersey number uniqueness only when both team and number exist
 playerSchema.index(
   { 'currentTeam': 1, 'jerseyNumber': 1 }, 
   { 
@@ -324,8 +342,6 @@ playerSchema.virtual('isTransferEligible').get(function() {
   
   // Seasonal contracts: only at season end or if season is inactive
   if (contract.contractType === 'seasonal') {
-    // This would need to check if the current season is active
-    // For now, we'll assume they can transfer if no active season
     return false; // Will be computed in business logic
   }
   
@@ -341,10 +357,126 @@ playerSchema.virtual('currentSeasonStats').get(function() {
   return this.seasonStats.get(latestSeason);
 });
 
+// NEW: Virtual for enhanced goal statistics
+playerSchema.virtual('enhancedGoalStats').get(function() {
+  const career = this.careerStats || {};
+  return {
+    totalGoals: (career.goals || 0) + (career.ownGoals || 0),
+    regularGoals: career.goals || 0,
+    ownGoals: career.ownGoals || 0,
+    goalRatio: career.appearances ? 
+      ((career.goals || 0) / career.appearances).toFixed(2) : '0.00',
+    ownGoalRatio: career.appearances ? 
+      ((career.ownGoals || 0) / career.appearances).toFixed(2) : '0.00'
+  };
+});
+
 // Method to get stats for specific season
 playerSchema.methods.getSeasonStats = function(seasonId) {
   if (!this.seasonStats) return null;
   return this.seasonStats.get(seasonId.toString()) || null;
+};
+
+// NEW: Method to get enhanced season stats including own goals
+playerSchema.methods.getEnhancedSeasonStats = function(seasonId) {
+  const stats = this.getSeasonStats(seasonId);
+  if (!stats) return null;
+  
+  return {
+    ...stats.toObject(),
+    totalGoals: (stats.goals || 0) + (stats.ownGoals || 0),
+    goalRatio: stats.appearances ? 
+      ((stats.goals || 0) / stats.appearances).toFixed(2) : '0.00',
+    ownGoalRatio: stats.appearances ? 
+      ((stats.ownGoals || 0) / stats.appearances).toFixed(2) : '0.00'
+  };
+};
+
+// NEW: Method to update stats from match events
+playerSchema.methods.updateStatsFromMatch = function(matchData, playerEvents) {
+  const { matchId, seasonId, teamId, result, minutesPlayed = 40 } = matchData;
+  
+  // Calculate stats from events
+  const matchStats = {
+    goals: 0,
+    ownGoals: 0,
+    assists: 0,
+    yellowCards: 0,
+    redCards: 0
+  };
+  
+  playerEvents.forEach(event => {
+    switch (event.type) {
+      case 'goal':
+        matchStats.goals++;
+        break;
+      case 'own_goal':
+        matchStats.ownGoals++;
+        break;
+      case 'assist':
+        matchStats.assists++;
+        break;
+      case 'yellow_card':
+        matchStats.yellowCards++;
+        break;
+      case 'red_card':
+        matchStats.redCards++;
+        break;
+    }
+  });
+  
+  // Update career stats
+  if (!this.careerStats) {
+    this.careerStats = {
+      appearances: 0, goals: 0, ownGoals: 0, assists: 0,
+      yellowCards: 0, redCards: 0, minutesPlayed: 0,
+      wins: 0, losses: 0, draws: 0
+    };
+  }
+  
+  this.careerStats.appearances += 1;
+  this.careerStats.goals += matchStats.goals;
+  this.careerStats.ownGoals += matchStats.ownGoals;
+  this.careerStats.assists += matchStats.assists;
+  this.careerStats.yellowCards += matchStats.yellowCards;
+  this.careerStats.redCards += matchStats.redCards;
+  this.careerStats.minutesPlayed += minutesPlayed;
+  
+  // Update result stats
+  if (result === 'win') this.careerStats.wins += 1;
+  else if (result === 'loss') this.careerStats.losses += 1;
+  else if (result === 'draw') this.careerStats.draws += 1;
+  
+  // Update season stats
+  if (!this.seasonStats) {
+    this.seasonStats = new Map();
+  }
+  
+  let seasonStats = this.seasonStats.get(seasonId.toString());
+  if (!seasonStats) {
+    seasonStats = {
+      season: seasonId,
+      appearances: 0, goals: 0, ownGoals: 0, assists: 0,
+      yellowCards: 0, redCards: 0, minutesPlayed: 0,
+      wins: 0, losses: 0, draws: 0
+    };
+  }
+  
+  seasonStats.appearances += 1;
+  seasonStats.goals += matchStats.goals;
+  seasonStats.ownGoals += matchStats.ownGoals;
+  seasonStats.assists += matchStats.assists;
+  seasonStats.yellowCards += matchStats.yellowCards;
+  seasonStats.redCards += matchStats.redCards;
+  seasonStats.minutesPlayed += minutesPlayed;
+  
+  if (result === 'win') seasonStats.wins += 1;
+  else if (result === 'loss') seasonStats.losses += 1;
+  else if (result === 'draw') seasonStats.draws += 1;
+  
+  this.seasonStats.set(seasonId.toString(), seasonStats);
+  
+  return this;
 };
 
 // Method to check if player can be transferred
@@ -447,10 +579,10 @@ playerSchema.methods.addTransfer = function(transferData) {
   });
 };
 
-// UPDATED: Pre-save middleware with enhanced ID card validation
+// Pre-save middleware with enhanced ID card validation
 playerSchema.pre('save', async function(next) {
   try {
-    // MANDATORY: Normalize ID card number
+    // Normalize ID card number
     if (this.idCardNumber) {
       this.idCardNumber = this.idCardNumber.trim().replace(/\s+/g, '').toUpperCase();
     }
@@ -490,6 +622,17 @@ playerSchema.pre('save', async function(next) {
       this.contractStatus = this.currentContract.contractType || 'normal';
     } else {
       this.contractStatus = 'free_agent';
+    }
+    
+    // Initialize careerStats with own goals if not present
+    if (!this.careerStats) {
+      this.careerStats = {
+        appearances: 0, goals: 0, ownGoals: 0, assists: 0,
+        yellowCards: 0, redCards: 0, minutesPlayed: 0,
+        wins: 0, losses: 0, draws: 0
+      };
+    } else if (this.careerStats.ownGoals === undefined) {
+      this.careerStats.ownGoals = 0;
     }
     
     next();
