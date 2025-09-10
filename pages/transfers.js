@@ -463,7 +463,7 @@ export default function TransfersPage() {
                     )}
 
                     {/* Transfer Notes */}
-                    {transfer.notes && (
+                    {transfer.notes && !transfer.notes.includes('preserved') && !transfer.notes.includes('Goals:') && (
                       <div className="bg-blue-50 border-l-4 border-blue-400 p-3">
                         <p className="text-sm text-blue-800">
                           <strong>Details:</strong> {transfer.notes}
