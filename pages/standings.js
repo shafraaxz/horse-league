@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: pages/standings.js (ENHANCED WITH TIE-BREAKING DISPLAY)
+// FILE: pages/standings.js (COMPLETE MOBILE-RESPONSIVE VERSION)
 // ===========================================
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
@@ -117,13 +117,13 @@ export default function StandingsPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">League Standings</h1>
           <p className="text-gray-600 mt-1">Teams ranked by points, then tie-breaking criteria</p>
         </div>
         
-        <div className="flex items-center space-x-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <button
             onClick={() => setShowTieBreakingInfo(!showTieBreakingInfo)}
             className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
@@ -136,7 +136,7 @@ export default function StandingsPage() {
             <select
               value={selectedSeason}
               onChange={(e) => setSelectedSeason(e.target.value)}
-              className="form-input w-48"
+              className="form-input w-full sm:w-48"
             >
               {seasons.map(season => (
                 <option key={season._id} value={season._id}>
@@ -172,60 +172,24 @@ export default function StandingsPage() {
       )}
 
       <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Pos
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Team
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  MP
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  W
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  D
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  L
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  GF
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  GA
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  GD
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  FP
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Pts
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {standings.map((team, index) => {
-                const position = index + 1;
-                const stats = team.enhancedStats || team.stats;
-                const goalDifference = stats.goalsFor - stats.goalsAgainst;
-                const tieBreakInfo = getTieBreakingInfo(team, index);
-                
-                return (
-                  <tr 
-                    key={team._id}
-                    className={`hover:bg-gray-50 transition-colors ${getPositionBackground(position)}`}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
+        {/* Mobile View - Compact Cards */}
+        <div className="block lg:hidden">
+          <div className="space-y-3">
+            {standings.map((team, index) => {
+              const position = index + 1;
+              const stats = team.enhancedStats || team.stats || {};
+              const goalDifference = (stats.goalsFor || 0) - (stats.goalsAgainst || 0);
+              const tieBreakInfo = getTieBreakingInfo(team, index);
+              
+              return (
+                <div 
+                  key={team._id} 
+                  className={`rounded-lg p-4 transition-colors ${getPositionBackground(position) || 'bg-gray-50'}`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center space-x-3">
                       <div className="flex items-center space-x-2">
-                        <span className={`text-lg ${getPositionColor(position)}`}>
+                        <span className={`text-lg font-bold ${getPositionColor(position)}`}>
                           {position}
                         </span>
                         {position === 1 && <Trophy className="w-4 h-4 text-yellow-500" />}
@@ -234,77 +198,226 @@ export default function StandingsPage() {
                         {tieBreakInfo && (
                           <div className="group relative">
                             <tieBreakInfo.icon className="w-3 h-3 text-blue-500" />
-                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
                               Separated by {tieBreakInfo.criteria}
                             </div>
                           </div>
                         )}
                       </div>
-                    </td>
-                    
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-3">
+                      
+                      <div className="flex items-center space-x-2">
                         {team.logo?.url && (
                           <Image
                             src={team.logo.url}
                             alt={team.name}
-                            width={32}
-                            height={32}
+                            width={24}
+                            height={24}
                             className="rounded-full object-cover"
                           />
                         )}
                         <div>
-                          <p className="font-medium text-gray-900">{team.name}</p>
-                          {team.playerCount > 0 && (
-                            <p className="text-xs text-gray-500">{team.playerCount} players</p>
-                          )}
+                          <h3 className="font-semibold text-gray-900 text-sm">{team.name}</h3>
+                          <p className="text-xs text-gray-500">{stats.matchesPlayed || 0} matches</p>
                         </div>
                       </div>
-                    </td>
+                    </div>
                     
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900">
-                      {stats.matchesPlayed || 0}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-green-600 font-medium">
-                      {stats.wins || 0}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-yellow-600 font-medium">
-                      {stats.draws || 0}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-red-600 font-medium">
-                      {stats.losses || 0}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900 font-medium">
-                      {stats.goalsFor || 0}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900 font-medium">
-                      {stats.goalsAgainst || 0}
-                    </td>
-                    <td className={`px-6 py-4 whitespace-nowrap text-center text-sm font-bold ${
-                      goalDifference > 0 ? 'text-green-600' :
-                      goalDifference < 0 ? 'text-red-600' : 'text-gray-900'
-                    }`}>
-                      {goalDifference > 0 ? '+' : ''}{goalDifference}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
-                      <div className="flex items-center justify-center">
-                        <span className={`px-2 py-1 rounded text-xs font-medium ${
-                          (stats.fairPlayPoints || 0) === 0 ? 'bg-green-100 text-green-800' :
-                          (stats.fairPlayPoints || 0) <= 3 ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-red-100 text-red-800'
+                    <div className="text-right">
+                      <div className="text-lg font-bold text-blue-600">{stats.points || 0}</div>
+                      <div className="text-xs text-gray-500">pts</div>
+                    </div>
+                  </div>
+                  
+                  {/* Key Stats Row */}
+                  <div className="grid grid-cols-4 gap-4 text-center">
+                    <div>
+                      <div className="text-sm font-semibold text-green-600">{stats.wins || 0}</div>
+                      <div className="text-xs text-gray-500">W</div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-yellow-600">{stats.draws || 0}</div>
+                      <div className="text-xs text-gray-500">D</div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-semibold text-red-600">{stats.losses || 0}</div>
+                      <div className="text-xs text-gray-500">L</div>
+                    </div>
+                    <div>
+                      <div className={`text-sm font-bold ${
+                        goalDifference > 0 ? 'text-green-600' : 
+                        goalDifference < 0 ? 'text-red-600' : 'text-gray-900'
+                      }`}>
+                        {goalDifference > 0 ? '+' : ''}{goalDifference}
+                      </div>
+                      <div className="text-xs text-gray-500">GD</div>
+                    </div>
+                  </div>
+                  
+                  {/* Additional Stats */}
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <div className="grid grid-cols-3 gap-4 text-center text-xs">
+                      <div>
+                        <span className="text-gray-500">GF:</span>
+                        <span className="ml-1 font-medium">{stats.goalsFor || 0}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">GA:</span>
+                        <span className="ml-1 font-medium">{stats.goalsAgainst || 0}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">FP:</span>
+                        <span className={`ml-1 font-medium ${
+                          (stats.fairPlayPoints || 0) === 0 ? 'bg-green-100 text-green-800 px-1 rounded' :
+                          (stats.fairPlayPoints || 0) <= 3 ? 'bg-yellow-100 text-yellow-800 px-1 rounded' :
+                          'bg-red-100 text-red-800 px-1 rounded'
                         }`}>
                           {stats.fairPlayPoints || 0}
                         </span>
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-lg font-bold text-blue-600">
-                      {stats.points || 0}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Desktop View - Full Table */}
+        <div className="hidden lg:block">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Pos
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Team
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    MP
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    W
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    D
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    L
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    GF
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    GA
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    GD
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    FP
+                  </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Pts
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {standings.map((team, index) => {
+                  const position = index + 1;
+                  const stats = team.enhancedStats || team.stats || {};
+                  const goalDifference = (stats.goalsFor || 0) - (stats.goalsAgainst || 0);
+                  const tieBreakInfo = getTieBreakingInfo(team, index);
+                  
+                  return (
+                    <tr 
+                      key={team._id}
+                      className={`hover:bg-gray-50 transition-colors ${getPositionBackground(position)}`}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center space-x-2">
+                          <span className={`text-lg ${getPositionColor(position)}`}>
+                            {position}
+                          </span>
+                          {position === 1 && <Trophy className="w-4 h-4 text-yellow-500" />}
+                          {getPositionIcon(position, team.previousPosition)}
+                          {/* Tie-breaking indicator */}
+                          {tieBreakInfo && (
+                            <div className="group relative">
+                              <tieBreakInfo.icon className="w-3 h-3 text-blue-500" />
+                              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                Separated by {tieBreakInfo.criteria}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center space-x-3">
+                          {team.logo?.url && (
+                            <Image
+                              src={team.logo.url}
+                              alt={team.name}
+                              width={32}
+                              height={32}
+                              className="rounded-full object-cover"
+                            />
+                          )}
+                          <div>
+                            <p className="font-medium text-gray-900">{team.name}</p>
+                            {team.playerCount > 0 && (
+                              <p className="text-xs text-gray-500">{team.playerCount} players</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900">
+                        {stats.matchesPlayed || 0}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-green-600 font-medium">
+                        {stats.wins || 0}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-yellow-600 font-medium">
+                        {stats.draws || 0}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-red-600 font-medium">
+                        {stats.losses || 0}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900 font-medium">
+                        {stats.goalsFor || 0}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900 font-medium">
+                        {stats.goalsAgainst || 0}
+                      </td>
+                      <td className={`px-6 py-4 whitespace-nowrap text-center text-sm font-bold ${
+                        goalDifference > 0 ? 'text-green-600' :
+                        goalDifference < 0 ? 'text-red-600' : 'text-gray-900'
+                      }`}>
+                        {goalDifference > 0 ? '+' : ''}{goalDifference}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                        <div className="flex items-center justify-center">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            (stats.fairPlayPoints || 0) === 0 ? 'bg-green-100 text-green-800' :
+                            (stats.fairPlayPoints || 0) <= 3 ? 'bg-yellow-100 text-yellow-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            {stats.fairPlayPoints || 0}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-lg font-bold text-blue-600">
+                        {stats.points || 0}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
