@@ -1,4 +1,4 @@
-// FILE: pages/index.js (Enhanced with FIXED statistics)
+// FILE: pages/index.js (FIXED - Reliable Statistics)
 // ===========================================
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -39,293 +39,203 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // FIXED: Homepage data fetching with consistent normalization
-  // ===========================================
-// FILE: pages/index.js (FIXED STATISTICS FETCHING)
-// ===========================================
+  // Add debug logging
+  useEffect(() => {
+    console.log('Current stats state:', stats);
+  }, [stats]);
 
-// Replace the fetchHomeData function in your homepage with this fixed version:
-
-const fetchHomeData = async () => {
-  try {
-    console.log('Fetching home page data...');
-    setIsLoading(true);
-    
-    // FIXED: Always use basic stats calculation since enhanced API might not exist
-    await fetchBasicStats();
-
-    // Fetch live match
+  // FIXED: Homepage data fetching - prioritize reliability
+  const fetchHomeData = async () => {
     try {
-      const liveResponse = await fetch('/api/public/matches?status=live&limit=1');
-      if (liveResponse.ok) {
-        const liveData = await liveResponse.json();
-        if (Array.isArray(liveData) && liveData.length > 0) {
-          setLiveMatch(liveData[0]);
-          console.log('Live match found:', liveData[0]);
+      console.log('Fetching home page data...');
+      setIsLoading(true);
+      
+      // FIXED: Always use basic stats first (reliable approach)
+      await fetchBasicStats();
+
+      // Fetch live match
+      try {
+        const liveResponse = await fetch('/api/public/matches?status=live&limit=1');
+        if (liveResponse.ok) {
+          const liveData = await liveResponse.json();
+          if (Array.isArray(liveData) && liveData.length > 0) {
+            setLiveMatch(liveData[0]);
+            console.log('Live match found:', liveData[0]);
+          }
         }
+      } catch (error) {
+        console.error('Error fetching live matches:', error);
       }
-    } catch (error) {
-      console.error('Error fetching live matches:', error);
-    }
 
-    // Fetch recent transfers
-    try {
-      const transfersResponse = await fetch('/api/public/transfers?limit=8');
-      if (transfersResponse.ok) {
-        const transfersData = await transfersResponse.json();
-        setRecentTransfers(Array.isArray(transfersData) ? transfersData : []);
-        console.log('Recent transfers:', transfersData?.length || 0);
-      }
-    } catch (error) {
-      console.error('Error fetching transfers:', error);
-    }
-
-    // Fetch league standings
-    try {
-      const standingsResponse = await fetch('/api/public/standings?limit=8');
-      if (standingsResponse.ok) {
-        const standingsData = await standingsResponse.json();
-        setStandings(Array.isArray(standingsData) ? standingsData : []);
-        console.log('Standings:', standingsData?.length || 0);
-      } else {
-        // Fallback to teams data
-        const teamsResponse = await fetch('/api/public/teams?limit=8');
-        if (teamsResponse.ok) {
-          const teamsData = await teamsResponse.json();
-          setStandings(Array.isArray(teamsData) ? teamsData : []);
+      // Fetch recent transfers
+      try {
+        const transfersResponse = await fetch('/api/public/transfers?limit=8');
+        if (transfersResponse.ok) {
+          const transfersData = await transfersResponse.json();
+          setRecentTransfers(Array.isArray(transfersData) ? transfersData : []);
+          console.log('Recent transfers:', transfersData?.length || 0);
         }
+      } catch (error) {
+        console.error('Error fetching transfers:', error);
       }
-    } catch (error) {
-      console.error('Error fetching standings:', error);
-    }
 
-    // Fetch upcoming matches
-    try {
-      const matchesResponse = await fetch('/api/public/matches?status=scheduled&limit=6');
-      if (matchesResponse.ok) {
-        const matchesData = await matchesResponse.json();
-        setUpcomingMatches(Array.isArray(matchesData) ? matchesData : []);
-        console.log('Upcoming matches:', matchesData?.length || 0);
-      }
-    } catch (error) {
-      console.error('Error fetching upcoming matches:', error);
-    }
-
-    // Fetch recent completed matches
-    try {
-      const recentResponse = await fetch('/api/public/matches?status=completed&limit=6');
-      if (recentResponse.ok) {
-        const recentData = await recentResponse.json();
-        setRecentMatches(Array.isArray(recentData) ? recentData : []);
-        console.log('Recent matches:', recentData?.length || 0);
-      }
-    } catch (error) {
-      console.error('Error fetching recent matches:', error);
-    }
-
-    // FIXED: Fetch top players with better error handling
-    try {
-      const playersResponse = await fetch('/api/public/players');
-      if (playersResponse.ok) {
-        const playersData = await playersResponse.json();
-        if (Array.isArray(playersData)) {
-          console.log('Players data received:', playersData.length);
-          
-          // Process top scorers - handle both careerStats and seasonStats
-          const scorers = playersData
-            .filter(p => {
-              const goals = p.careerStats?.goals || p.seasonStats?.goals || 0;
-              return goals > 0;
-            })
-            .sort((a, b) => {
-              const aGoals = a.careerStats?.goals || a.seasonStats?.goals || 0;
-              const bGoals = b.careerStats?.goals || b.seasonStats?.goals || 0;
-              return bGoals - aGoals;
-            })
-            .slice(0, 5)
-            .map(player => ({
-              ...player,
-              normalizedGoals: player.careerStats?.goals || player.seasonStats?.goals || 0
-            }));
-          
-          setTopScorers(scorers);
-          console.log('Top scorers:', scorers.map(p => `${p.name}: ${p.normalizedGoals} goals`));
-          
-          // Process top assists
-          const assisters = playersData
-            .filter(p => {
-              const assists = p.careerStats?.assists || p.seasonStats?.assists || 0;
-              return assists > 0;
-            })
-            .sort((a, b) => {
-              const aAssists = a.careerStats?.assists || a.seasonStats?.assists || 0;
-              const bAssists = b.careerStats?.assists || b.seasonStats?.assists || 0;
-              return bAssists - aAssists;
-            })
-            .slice(0, 5)
-            .map(player => ({
-              ...player,
-              normalizedAssists: player.careerStats?.assists || player.seasonStats?.assists || 0
-            }));
-          
-          setTopAssists(assisters);
-          console.log('Top assisters:', assisters.map(p => `${p.name}: ${p.normalizedAssists} assists`));
+      // Fetch league standings
+      try {
+        const standingsResponse = await fetch('/api/public/standings?limit=8');
+        if (standingsResponse.ok) {
+          const standingsData = await standingsResponse.json();
+          setStandings(Array.isArray(standingsData) ? standingsData : []);
+          console.log('Standings:', standingsData?.length || 0);
+        } else {
+          // Fallback to teams data
+          const teamsResponse = await fetch('/api/public/teams?limit=8');
+          if (teamsResponse.ok) {
+            const teamsData = await teamsResponse.json();
+            setStandings(Array.isArray(teamsData) ? teamsData : []);
+          }
         }
+      } catch (error) {
+        console.error('Error fetching standings:', error);
       }
+
+      // Fetch upcoming matches
+      try {
+        const matchesResponse = await fetch('/api/public/matches?status=scheduled&limit=6');
+        if (matchesResponse.ok) {
+          const matchesData = await matchesResponse.json();
+          setUpcomingMatches(Array.isArray(matchesData) ? matchesData : []);
+          console.log('Upcoming matches:', matchesData?.length || 0);
+        }
+      } catch (error) {
+        console.error('Error fetching upcoming matches:', error);
+      }
+
+      // Fetch recent completed matches
+      try {
+        const recentResponse = await fetch('/api/public/matches?status=completed&limit=6');
+        if (recentResponse.ok) {
+          const recentData = await recentResponse.json();
+          setRecentMatches(Array.isArray(recentData) ? recentData : []);
+          console.log('Recent matches:', recentData?.length || 0);
+        }
+      } catch (error) {
+        console.error('Error fetching recent matches:', error);
+      }
+
+      // FIXED: Fetch top players with robust error handling
+      try {
+        const playersResponse = await fetch('/api/public/players');
+        if (playersResponse.ok) {
+          const playersData = await playersResponse.json();
+          if (Array.isArray(playersData)) {
+            console.log('Players data received:', playersData.length);
+            console.log('Sample player data:', playersData.slice(0, 2).map(p => ({
+              name: p.name,
+              careerGoals: p.careerStats?.goals,
+              careerAssists: p.careerStats?.assists
+            })));
+            
+            // FIXED: Robust goal processing with multiple fallbacks
+            const scorers = playersData
+              .filter(p => {
+                const goals = p.careerStats?.goals || 0;
+                return goals > 0;
+              })
+              .sort((a, b) => {
+                const aGoals = a.careerStats?.goals || 0;
+                const bGoals = b.careerStats?.goals || 0;
+                return bGoals - aGoals;
+              })
+              .slice(0, 5)
+              .map(player => ({
+                ...player,
+                normalizedGoals: player.careerStats?.goals || 0
+              }));
+            
+            setTopScorers(scorers);
+            console.log('Top scorers processed:', scorers.map(p => `${p.name}: ${p.normalizedGoals} goals`));
+            
+            // FIXED: Robust assists processing
+            const assisters = playersData
+              .filter(p => {
+                const assists = p.careerStats?.assists || 0;
+                return assists > 0;
+              })
+              .sort((a, b) => {
+                const aAssists = a.careerStats?.assists || 0;
+                const bAssists = b.careerStats?.assists || 0;
+                return bAssists - aAssists;
+              })
+              .slice(0, 5)
+              .map(player => ({
+                ...player,
+                normalizedAssists: player.careerStats?.assists || 0
+              }));
+            
+            setTopAssists(assisters);
+            console.log('Top assisters processed:', assisters.map(p => `${p.name}: ${p.normalizedAssists} assists`));
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching top players:', error);
+      }
+
+      console.log('Home data fetch completed');
     } catch (error) {
-      console.error('Error fetching top players:', error);
+      console.error('Error in fetchHomeData:', error);
+    } finally {
+      setIsLoading(false);
     }
+  };
 
-    console.log('Home data fetch completed');
-  } catch (error) {
-    console.error('Error in fetchHomeData:', error);
-  } finally {
-    setIsLoading(false);
-  }
-};
-
-// FIXED: Enhanced basic stats function
-const fetchBasicStats = async () => {
-  try {
-    console.log('Fetching basic stats...');
-    
-    const [teamsRes, playersRes, matchesRes, transfersRes] = await Promise.all([
-      fetch('/api/public/teams'),
-      fetch('/api/public/players'), 
-      fetch('/api/public/matches'),
-      fetch('/api/public/transfers').catch(() => ({ ok: false })) // Optional API
-    ]);
-    
-    let totalTeams = 0;
-    let totalPlayers = 0;
-    let totalMatches = 0;
-    let totalGoals = 0;
-    let completedMatches = 0;
-    let liveMatches = 0;
-    let scheduledMatches = 0;
-    let totalTransfers = 0;
-    
-    if (teamsRes.ok) {
-      const teams = await teamsRes.json();
-      totalTeams = Array.isArray(teams) ? teams.length : 0;
-      console.log('Teams fetched:', totalTeams);
-    }
-    
-    if (playersRes.ok) {
-      const players = await playersRes.json();
-      if (Array.isArray(players)) {
-        totalPlayers = players.length;
-        // Calculate total goals from player stats
-        totalGoals = players.reduce((sum, p) => {
-          const playerGoals = p.careerStats?.goals || p.seasonStats?.goals || 0;
-          return sum + playerGoals;
-        }, 0);
-        console.log('Players fetched:', totalPlayers, 'Total goals:', totalGoals);
-      }
-    }
-    
-    if (matchesRes.ok) {
-      const matches = await matchesRes.json();
-      if (Array.isArray(matches)) {
-        totalMatches = matches.length;
-        completedMatches = matches.filter(m => m.status === 'completed').length;
-        liveMatches = matches.filter(m => m.status === 'live').length;
-        scheduledMatches = matches.filter(m => m.status === 'scheduled').length;
-        console.log('Matches fetched:', totalMatches, 'Completed:', completedMatches);
-      }
-    }
-
-    if (transfersRes.ok) {
-      const transfers = await transfersRes.json();
-      if (Array.isArray(transfers)) {
-        totalTransfers = transfers.length;
-      }
-    }
-    
-    const avgGoalsPerMatch = completedMatches > 0 ? Math.round((totalGoals / completedMatches) * 10) / 10 : 0;
-    const matchCompletionRate = totalMatches > 0 ? Math.round((completedMatches / totalMatches) * 100) : 0;
-    
-    const statsData = {
-      totalTeams,
-      totalPlayers,
-      totalMatches,
-      totalGoals,
-      completedMatches,
-      liveMatches,
-      scheduledMatches,
-      totalTransfers,
-      avgGoalsPerMatch,
-      matchCompletionRate
-    };
-    
-    setStats(statsData);
-    console.log('Stats updated:', statsData);
-    
-  } catch (error) {
-    console.error('Error fetching basic stats:', error);
-    // Set default stats if everything fails
-    setStats({
-      totalTeams: 0,
-      totalPlayers: 0,
-      totalMatches: 0,
-      totalGoals: 0,
-      completedMatches: 0,
-      liveMatches: 0,
-      scheduledMatches: 0,
-      totalTransfers: 0,
-      avgGoalsPerMatch: 0,
-      matchCompletionRate: 0
-    });
-  }
-};
-
-  // FIXED: Update the basic stats function for consistency
+  // FIXED: Enhanced basic stats function with better error handling
   const fetchBasicStats = async () => {
     try {
-      const [teamsRes, playersRes, matchesRes] = await Promise.all([
-        fetch('/api/public/teams'),
-        fetch('/api/public/players'),
-        fetch('/api/public/matches')
+      console.log('Fetching basic stats...');
+      
+      // Fetch all data in parallel with individual error handling
+      const fetchWithFallback = async (url, defaultValue = []) => {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const data = await response.json();
+            return Array.isArray(data) ? data : defaultValue;
+          }
+          return defaultValue;
+        } catch (error) {
+          console.error(`Error fetching ${url}:`, error);
+          return defaultValue;
+        }
+      };
+
+      const [teams, players, matches, transfers] = await Promise.all([
+        fetchWithFallback('/api/public/teams'),
+        fetchWithFallback('/api/public/players'),
+        fetchWithFallback('/api/public/matches'),
+        fetchWithFallback('/api/public/transfers')
       ]);
       
-      let totalTeams = 0;
-      let totalPlayers = 0;
-      let totalMatches = 0;
-      let totalGoals = 0;
-      let completedMatches = 0;
-      let liveMatches = 0;
-      let scheduledMatches = 0;
+      const totalTeams = teams.length;
+      const totalPlayers = players.length;
+      const totalMatches = matches.length;
       
-      if (teamsRes.ok) {
-        const teams = await teamsRes.json();
-        totalTeams = Array.isArray(teams) ? teams.length : 0;
-      }
+      // Calculate total goals from player career stats
+      const totalGoals = players.reduce((sum, p) => {
+        const playerGoals = p.careerStats?.goals || 0;
+        return sum + playerGoals;
+      }, 0);
       
-      if (playersRes.ok) {
-        const players = await playersRes.json();
-        if (Array.isArray(players)) {
-          totalPlayers = players.length;
-          // FIXED: Use only careerStats for consistency
-          totalGoals = players.reduce((sum, p) => {
-            return sum + (p.careerStats?.goals || 0);
-          }, 0);
-        }
-      }
+      const completedMatches = matches.filter(m => m.status === 'completed').length;
+      const liveMatches = matches.filter(m => m.status === 'live').length;
+      const scheduledMatches = matches.filter(m => m.status === 'scheduled').length;
+      const totalTransfers = transfers.length;
       
-      if (matchesRes.ok) {
-        const matches = await matchesRes.json();
-        if (Array.isArray(matches)) {
-          totalMatches = matches.length;
-          completedMatches = matches.filter(m => m.status === 'completed').length;
-          liveMatches = matches.filter(m => m.status === 'live').length;
-          scheduledMatches = matches.filter(m => m.status === 'scheduled').length;
-        }
-      }
+      const avgGoalsPerMatch = completedMatches > 0 ? 
+        Math.round((totalGoals / completedMatches) * 10) / 10 : 0;
+      const matchCompletionRate = totalMatches > 0 ? 
+        Math.round((completedMatches / totalMatches) * 100) : 0;
       
-      const avgGoalsPerMatch = completedMatches > 0 ? Math.round((totalGoals / completedMatches) * 10) / 10 : 0;
-      const matchCompletionRate = totalMatches > 0 ? Math.round((completedMatches / totalMatches) * 100) : 0;
-      
-      setStats({
+      const statsData = {
         totalTeams,
         totalPlayers,
         totalMatches,
@@ -333,18 +243,29 @@ const fetchBasicStats = async () => {
         completedMatches,
         liveMatches,
         scheduledMatches,
-        totalTransfers: 0,
+        totalTransfers,
         avgGoalsPerMatch,
         matchCompletionRate
-      });
+      };
       
-      console.log('Basic stats (FIXED):', {
-        totalGoals,
-        totalPlayers,
-        avgGoalsPerMatch
-      });
+      console.log('Basic stats calculated:', statsData);
+      setStats(statsData);
+      
     } catch (error) {
       console.error('Error fetching basic stats:', error);
+      // Set minimal stats if everything fails
+      setStats({
+        totalTeams: 0,
+        totalPlayers: 0,
+        totalMatches: 0,
+        totalGoals: 0,
+        completedMatches: 0,
+        liveMatches: 0,
+        scheduledMatches: 0,
+        totalTransfers: 0,
+        avgGoalsPerMatch: 0,
+        matchCompletionRate: 0
+      });
     }
   };
 
@@ -580,12 +501,12 @@ const fetchBasicStats = async () => {
                     <div>
                       <p className="font-medium text-sm">{team.name}</p>
                       <p className="text-xs text-gray-500">
-                        {team.stats?.wins || 0}W {team.stats?.draws || 0}D {team.stats?.losses || 0}L
+                        {team.enhancedStats?.wins || team.stats?.wins || 0}W {team.enhancedStats?.draws || team.stats?.draws || 0}D {team.enhancedStats?.losses || team.stats?.losses || 0}L
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-lg">{team.stats?.points || 0}</p>
+                    <p className="font-bold text-lg">{team.enhancedStats?.points || team.stats?.points || 0}</p>
                     <p className="text-xs text-gray-500">pts</p>
                   </div>
                 </div>
@@ -597,7 +518,7 @@ const fetchBasicStats = async () => {
           </div>
         </div>
 
-        {/* Top Scorers - FIXED LINKS */}
+        {/* Top Scorers */}
         <div className="xl:col-span-1">
           <div className="bg-white rounded-xl shadow-lg p-6 h-full">
             <div className="flex justify-between items-center mb-6">
