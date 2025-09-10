@@ -1,500 +1,463 @@
 // ===========================================
-// FILE: pages/matches/live.js (ENHANCED WITH PLAYER STATS)
+// FILE: pages/matches/live.js (ENHANCED WITH OFFICIAL CARDS & OWN GOALS)
 // ===========================================
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
 import { useSession } from 'next-auth/react';
-import { Play, Pause, RotateCcw, Plus, Users, Target, Clock, User } from 'lucide-react';
-import Modal from '../../components/ui/Modal';
+import { useRouter } from 'next/router';
+import { 
+  Play, 
+  Pause, 
+  Clock, 
+  Users, 
+  User, 
+  Shield,
+  Target,
+  AlertTriangle,
+  Plus,
+  Minus 
+} from 'lucide-react';
 import toast from 'react-hot-toast';
+import Modal from '../../components/ui/Modal';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
-export default function LiveMatch() {
-  const { data: session } = useSession();
+export default function LiveMatchManager() {
+  const { data: session, status } = useSession();
   const router = useRouter();
   const { matchId } = router.query;
 
   const [match, setMatch] = useState(null);
-  const [homePlayers, setHomePlayers] = useState([]);
-  const [awayPlayers, setAwayPlayers] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isLive, setIsLive] = useState(false);
   const [currentMinute, setCurrentMinute] = useState(0);
   const [homeScore, setHomeScore] = useState(0);
   const [awayScore, setAwayScore] = useState(0);
   const [events, setEvents] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [homePlayers, setHomePlayers] = useState([]);
+  const [awayPlayers, setAwayPlayers] = useState([]);
   
-  // Modal states
+  // Enhanced modal states
   const [showEventModal, setShowEventModal] = useState(false);
   const [eventType, setEventType] = useState('');
   const [eventTeam, setEventTeam] = useState('');
+  const [showOfficialModal, setShowOfficialModal] = useState(false);
 
-  // Auto-increment timer when live
-  useEffect(() => {
-    let interval;
-    if (isLive) {
-      interval = setInterval(() => {
-        setCurrentMinute(prev => prev + 1);
-      }, 60000); // 1 minute intervals
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isLive]);
-
-  // Fetch match data and players
   useEffect(() => {
     if (matchId) {
-      fetchMatch();
-      fetchPlayers();
+      fetchMatchData();
     }
   }, [matchId]);
 
-  const fetchMatch = async () => {
+  const fetchMatchData = async () => {
     try {
       setIsLoading(true);
-      
-      let response;
-      try {
-        response = await fetch(`/api/matches/${matchId}`);
-      } catch (error) {
-        response = await fetch(`/api/get-match?id=${matchId}`);
+      const response = await fetch(`/api/matches/${matchId}`);
+      if (response.ok) {
+        const matchData = await response.json();
+        setMatch(matchData);
+        setCurrentMinute(matchData.liveData?.currentMinute || 0);
+        setIsLive(matchData.liveData?.isLive || false);
+        
+        // Enhanced score handling
+        if (matchData.stats) {
+          setHomeScore(matchData.stats.homeGoals?.total || matchData.homeScore || 0);
+          setAwayScore(matchData.stats.awayGoals?.total || matchData.awayScore || 0);
+        } else {
+          setHomeScore(matchData.homeScore || 0);
+          setAwayScore(matchData.awayScore || 0);
+        }
+        
+        setEvents(matchData.events || []);
+        await fetchTeamPlayers(matchData);
       }
-      
-      if (!response.ok) {
-        throw new Error('Match not found');
-      }
-      
-      const matchData = await response.json();
-      setMatch(matchData);
-      setIsLive(matchData.status === 'live');
-      setHomeScore(matchData.homeScore || 0);
-      setAwayScore(matchData.awayScore || 0);
-      setCurrentMinute(matchData.liveData?.currentMinute || 0);
-      setEvents(matchData.liveData?.events || []);
-      
     } catch (error) {
-      console.error('Error fetching match:', error);
-      toast.error('Failed to load match');
-      setTimeout(() => router.push('/admin/matches'), 3000);
+      console.error('Error fetching match data:', error);
+      toast.error('Failed to load match data');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const fetchPlayers = async () => {
-    if (!match) return;
-    
+  const fetchTeamPlayers = async (matchData) => {
     try {
-      // Fetch home team players
-      const homeResponse = await fetch(`/api/admin/players?teamId=${match.homeTeam._id}&status=active`);
-      if (homeResponse.ok) {
-        const homeData = await homeResponse.json();
-        setHomePlayers(Array.isArray(homeData) ? homeData : []);
-      }
+      const [homeResponse, awayResponse] = await Promise.all([
+        fetch(`/api/admin/players?teamId=${matchData.homeTeam._id}&status=active`),
+        fetch(`/api/admin/players?teamId=${matchData.awayTeam._id}&status=active`)
+      ]);
 
-      // Fetch away team players
-      const awayResponse = await fetch(`/api/admin/players?teamId=${match.awayTeam._id}&status=active`);
-      if (awayResponse.ok) {
-        const awayData = await awayResponse.json();
-        setAwayPlayers(Array.isArray(awayData) ? awayData : []);
+      if (homeResponse.ok && awayResponse.ok) {
+        const [homePlayers, awayPlayers] = await Promise.all([
+          homeResponse.json(),
+          awayResponse.json()
+        ]);
+        setHomePlayers(Array.isArray(homePlayers) ? homePlayers : []);
+        setAwayPlayers(Array.isArray(awayPlayers) ? awayPlayers : []);
       }
     } catch (error) {
-      console.error('Error fetching players:', error);
-      toast.error('Failed to load team players');
-    }
-  };
-
-  // Re-fetch players when match is loaded
-  useEffect(() => {
-    if (match) {
-      fetchPlayers();
-    }
-  }, [match]);
-
-  const startMatch = async () => {
-    try {
-      const response = await fetch('/api/matches/live/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchId: match._id }),
-      });
-
-      if (response.ok) {
-        setIsLive(true);
-        setCurrentMinute(0);
-        toast.success('Match started!');
-      } else {
-        const data = await response.json();
-        toast.error(data.message || 'Failed to start match');
-      }
-    } catch (error) {
-      toast.error('Failed to start match');
-    }
-  };
-
-  const pauseMatch = async () => {
-    try {
-      const response = await fetch('/api/matches/live/pause', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchId: match._id }),
-      });
-
-      if (response.ok) {
-        setIsLive(false);
-        toast.success('Match paused');
-      }
-    } catch (error) {
-      toast.error('Failed to pause match');
-    }
-  };
-
-  const endMatch = async () => {
-    if (!confirm('Are you sure you want to end this match?')) return;
-
-    try {
-      const response = await fetch('/api/matches/live/end', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          matchId: match._id,
-          homeScore,
-          awayScore,
-          events
-        }),
-      });
-
-      if (response.ok) {
-        setIsLive(false);
-        toast.success('Match ended!');
-        
-        // Update player statistics
-        await updatePlayerStats();
-        
-        router.push('/admin/matches');
-      } else {
-        const data = await response.json();
-        toast.error(data.message || 'Failed to end match');
-      }
-    } catch (error) {
-      toast.error('Failed to end match');
-    }
-  };
-
-  const updatePlayerStats = async () => {
-    try {
-      await fetch('/api/matches/live/update-stats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          matchId: match._id,
-          events,
-          homeScore,
-          awayScore
-        }),
-      });
-    } catch (error) {
-      console.error('Error updating player stats:', error);
+      console.error('Error fetching team players:', error);
     }
   };
 
   const openEventModal = (type, team) => {
     setEventType(type);
     setEventTeam(team);
-    setShowEventModal(true);
-  };
-
-  const addEventWithPlayer = (playerId, playerName) => {
-    const newEvent = {
-      id: Date.now(),
-      type: eventType,
-      team: eventTeam,
-      minute: currentMinute,
-      player: playerId,
-      playerName: playerName,
-      description: `${eventType.replace('_', ' ').toUpperCase()} - ${playerName}`
-    };
-
-    setEvents(prev => [...prev, newEvent]);
-
-    if (eventType === 'goal') {
-      if (eventTeam === 'home') {
-        setHomeScore(prev => prev + 1);
-      } else {
-        setAwayScore(prev => prev + 1);
-      }
-    }
-
-    toast.success(`${eventType.replace('_', ' ').toUpperCase()} added for ${playerName}`);
-    setShowEventModal(false);
-  };
-
-  const removeLastEvent = () => {
-    if (events.length === 0) return;
-
-    const lastEvent = events[events.length - 1];
     
-    if (lastEvent.type === 'goal') {
-      if (lastEvent.team === 'home') {
-        setHomeScore(prev => Math.max(0, prev - 1));
-      } else {
-        setAwayScore(prev => Math.max(0, prev - 1));
-      }
+    // For cards, check if we need official modal
+    if ((type === 'yellow_card' || type === 'red_card')) {
+      setShowEventModal(true);
+    } else {
+      setShowEventModal(true);
     }
-
-    setEvents(prev => prev.slice(0, -1));
-    toast.success('Last event removed');
   };
 
-  // Auto-save match data
-  useEffect(() => {
-    if (match && isLive) {
-      const interval = setInterval(async () => {
-        try {
-          await fetch('/api/matches/live/update', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              matchId: match._id,
-              status: 'live',
-              homeScore,
-              awayScore,
-              liveData: {
-                currentMinute,
-                events,
-                isLive
-              }
-            }),
-          });
-        } catch (error) {
-          console.error('Auto-save error:', error);
+  const openOfficialModal = (type, team) => {
+    setEventType(type);
+    setEventTeam(team);
+    setShowOfficialModal(true);
+  };
+
+  const addEventWithPlayer = async (playerId, playerName = null) => {
+    try {
+      const newEvent = {
+        id: events.length + 1,
+        type: eventType,
+        team: eventTeam,
+        minute: currentMinute,
+        player: playerId,
+        playerName: playerName,
+        isOfficial: !playerId, // True if no player ID (official)
+        description: generateEventDescription(playerId, playerName),
+        timestamp: new Date(),
+        // Enhanced fields for specific event types
+        ...(eventType === 'own_goal' && {
+          isOwnGoal: true,
+          beneficiaryTeam: eventTeam === 'home' ? 'away' : 'home'
+        })
+      };
+
+      const updatedEvents = [...events, newEvent];
+      setEvents(updatedEvents);
+
+      // Update score for goals
+      if (eventType === 'goal') {
+        if (eventTeam === 'home') {
+          setHomeScore(prev => prev + 1);
+        } else {
+          setAwayScore(prev => prev + 1);
         }
-      }, 30000); // Save every 30 seconds
+      } else if (eventType === 'own_goal') {
+        // Own goal benefits the opposing team
+        if (eventTeam === 'home') {
+          setAwayScore(prev => prev + 1);
+        } else {
+          setHomeScore(prev => prev + 1);
+        }
+      }
 
-      return () => clearInterval(interval);
+      // Send to server
+      await updateMatchScore(updatedEvents);
+      setShowEventModal(false);
+      setShowOfficialModal(false);
+      
+      toast.success(`${eventType.replace('_', ' ').toUpperCase()} recorded successfully`);
+    } catch (error) {
+      console.error('Error adding event:', error);
+      toast.error('Failed to add event');
     }
-  }, [match, isLive, currentMinute, homeScore, awayScore, events]);
+  };
 
-  if (!session || session.user.role !== 'admin') {
+  const generateEventDescription = (playerId, playerName) => {
+    const name = playerName || getPlayerName(playerId) || 'Official';
+    
+    switch (eventType) {
+      case 'goal':
+        return `Goal by ${name}`;
+      case 'own_goal':
+        return `Own goal by ${name}`;
+      case 'assist':
+        return `Assist by ${name}`;
+      case 'yellow_card':
+        return `Yellow card - ${name}`;
+      case 'red_card':
+        return `Red card - ${name}`;
+      case 'substitution':
+        return `Substitution - ${name}`;
+      default:
+        return `${eventType.replace('_', ' ')} - ${name}`;
+    }
+  };
+
+  const getPlayerName = (playerId) => {
+    const allPlayers = [...homePlayers, ...awayPlayers];
+    const player = allPlayers.find(p => p._id === playerId);
+    return player ? `${player.name} (#${player.jerseyNumber})` : 'Unknown Player';
+  };
+
+  const updateMatchScore = async (updatedEvents = events) => {
+    try {
+      const response = await fetch('/api/matches/live/score', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchId,
+          homeScore,
+          awayScore,
+          currentMinute,
+          events: updatedEvents
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update score');
+      }
+    } catch (error) {
+      console.error('Error updating score:', error);
+      throw error;
+    }
+  };
+
+  const toggleMatchState = async () => {
+    try {
+      const response = await fetch('/api/matches/live/control', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchId,
+          action: isLive ? 'pause' : 'start',
+          currentMinute
+        }),
+      });
+
+      if (response.ok) {
+        setIsLive(!isLive);
+        toast.success(`Match ${isLive ? 'paused' : 'started'}`);
+      }
+    } catch (error) {
+      console.error('Error toggling match state:', error);
+      toast.error('Failed to update match state');
+    }
+  };
+
+  const updateScore = (team, delta) => {
+    if (team === 'home') {
+      setHomeScore(prev => Math.max(0, prev + delta));
+    } else {
+      setAwayScore(prev => Math.max(0, prev + delta));
+    }
+  };
+
+  if (status === 'loading' || isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
-          <p className="text-gray-600">Only administrators can manage live matches.</p>
-        </div>
+        <LoadingSpinner size="lg" />
       </div>
     );
   }
 
-  if (isLoading) {
+  if (!session || !match) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading match...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!match) {
-    return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">No Match Selected</h2>
-          <button
-            onClick={() => router.push('/admin/matches')}
-            className="btn btn-primary mt-4"
-          >
-            Back to Matches
-          </button>
-        </div>
+      <div className="text-center py-12">
+        <h1 className="text-2xl font-bold mb-4">Access Denied</h1>
+        <p>You need to be logged in to view this page.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Live Match Manager</h1>
-        <button
-          onClick={() => router.push('/admin/matches')}
-          className="btn btn-secondary"
-        >
-          Back to Matches
-        </button>
-      </div>
-
-      {/* Match Info */}
+    <div className="space-y-6 max-w-4xl mx-auto">
+      {/* Match Header */}
       <div className="card">
-        <div className="text-center">
-          <div className="flex items-center justify-center mb-4">
-            {isLive && <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse mr-2"></div>}
-            <span className={`text-lg font-semibold ${isLive ? 'text-red-600' : 'text-gray-600'}`}>
-              {isLive ? 'LIVE' : match.status.toUpperCase()}
+        <div className="text-center mb-4">
+          <h1 className="text-2xl font-bold mb-2">Live Match Manager</h1>
+          <div className="flex justify-center items-center space-x-2 mb-4">
+            <Clock className="w-5 h-5" />
+            <span className={`font-bold ${isLive ? 'text-red-600' : 'text-gray-600'}`}>
+              {isLive ? 'LIVE' : 'PAUSED'} - {currentMinute}'
             </span>
           </div>
-
-          <div className="grid grid-cols-3 items-center gap-8 mb-6">
+          
+          <div className="grid grid-cols-3 items-center gap-4">
+            {/* Home Team */}
             <div className="text-center">
-              <h3 className="text-2xl font-bold text-gray-900">{match.homeTeam.name}</h3>
-              <div className="text-4xl font-bold text-blue-600 mt-2">{homeScore}</div>
+              <h3 className="text-xl font-bold mb-2">{match.homeTeam.name}</h3>
+              {session?.user?.role === 'admin' && (
+                <div className="flex justify-center space-x-2 mb-2">
+                  <button
+                    onClick={() => updateScore('home', -1)}
+                    className="btn btn-danger px-2 py-1"
+                    disabled={homeScore === 0}
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => updateScore('home', 1)}
+                    className="btn btn-primary px-2 py-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              <div className="text-4xl font-bold text-blue-600">{homeScore}</div>
             </div>
 
+            {/* VS */}
             <div className="text-center">
-              <div className="text-2xl font-mono font-bold text-gray-900">{currentMinute}'</div>
-              <div className="text-sm text-gray-500 mt-1">
-                {new Date(match.matchDate).toLocaleDateString()}
-              </div>
+              <span className="text-2xl font-bold text-gray-400">VS</span>
             </div>
 
+            {/* Away Team */}
             <div className="text-center">
-              <h3 className="text-2xl font-bold text-gray-900">{match.awayTeam.name}</h3>
-              <div className="text-4xl font-bold text-red-600 mt-2">{awayScore}</div>
+              <h3 className="text-xl font-bold mb-2">{match.awayTeam.name}</h3>
+              {session?.user?.role === 'admin' && (
+                <div className="flex justify-center space-x-2 mb-2">
+                  <button
+                    onClick={() => updateScore('away', -1)}
+                    className="btn btn-danger px-2 py-1"
+                    disabled={awayScore === 0}
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => updateScore('away', 1)}
+                    className="btn btn-primary px-2 py-1"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              <div className="text-4xl font-bold text-red-600">{awayScore}</div>
             </div>
-          </div>
-
-          {/* Controls */}
-          <div className="flex justify-center space-x-4">
-            {!isLive && match.status === 'scheduled' && (
-              <button onClick={startMatch} className="btn btn-primary flex items-center">
-                <Play className="w-5 h-5 mr-2" />
-                Start Match
-              </button>
-            )}
-            
-            {isLive && (
-              <>
-                <button onClick={pauseMatch} className="btn btn-secondary flex items-center">
-                  <Pause className="w-5 h-5 mr-2" />
-                  Pause
-                </button>
-                <button onClick={endMatch} className="btn btn-danger flex items-center">
-                  <RotateCcw className="w-5 h-5 mr-2" />
-                  End Match
-                </button>
-              </>
-            )}
           </div>
         </div>
       </div>
 
-      {/* Live Controls */}
-      {isLive && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Score Controls */}
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-4 flex items-center">
-              <Target className="w-5 h-5 mr-2" />
-              Score Events
-            </h3>
+      {/* Enhanced Control Panel */}
+      {session?.user?.role === 'admin' && (
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Match Controls</h3>
+          
+          {/* Match State Controls */}
+          <div className="flex justify-center space-x-4 mb-6">
+            <button
+              onClick={toggleMatchState}
+              className={`btn ${isLive ? 'btn-danger' : 'btn-success'} flex items-center`}
+            >
+              {isLive ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+              {isLive ? 'Pause Match' : 'Start Match'}
+            </button>
             
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="font-medium">{match.homeTeam.name}</span>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => openEventModal('goal', 'home')}
-                    className="btn btn-sm btn-primary flex items-center"
-                  >
-                    <User className="w-4 h-4 mr-1" />
-                    Goal
-                  </button>
-                  <span className="font-bold text-lg w-8 text-center">{homeScore}</span>
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="font-medium">{match.awayTeam.name}</span>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => openEventModal('goal', 'away')}
-                    className="btn btn-sm btn-primary flex items-center"
-                  >
-                    <User className="w-4 h-4 mr-1" />
-                    Goal
-                  </button>
-                  <span className="font-bold text-lg w-8 text-center">{awayScore}</span>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t">
-                <button
-                  onClick={removeLastEvent}
-                  className="btn btn-sm btn-secondary w-full"
-                  disabled={events.length === 0}
-                >
-                  Undo Last Event
-                </button>
-              </div>
+            <div className="flex items-center space-x-2">
+              <label htmlFor="minute" className="text-sm font-medium">Minute:</label>
+              <input
+                id="minute"
+                type="number"
+                min="0"
+                max="120"
+                value={currentMinute}
+                onChange={(e) => setCurrentMinute(parseInt(e.target.value) || 0)}
+                className="form-input w-20"
+              />
             </div>
           </div>
 
-          {/* Other Events */}
-          <div className="card">
-            <h3 className="text-lg font-semibold mb-4 flex items-center">
-              <Plus className="w-5 h-5 mr-2" />
-              Player Events
-            </h3>
-            
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => openEventModal('yellow_card', 'home')}
-                  className="btn btn-sm btn-warning flex items-center justify-center"
-                >
-                  <User className="w-4 h-4 mr-1" />
-                  Yellow (Home)
-                </button>
-                <button
-                  onClick={() => openEventModal('yellow_card', 'away')}
-                  className="btn btn-sm btn-warning flex items-center justify-center"
-                >
-                  <User className="w-4 h-4 mr-1" />
-                  Yellow (Away)
-                </button>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => openEventModal('red_card', 'home')}
-                  className="btn btn-sm btn-danger flex items-center justify-center"
-                >
-                  <User className="w-4 h-4 mr-1" />
-                  Red (Home)
-                </button>
-                <button
-                  onClick={() => openEventModal('red_card', 'away')}
-                  className="btn btn-sm btn-danger flex items-center justify-center"
-                >
-                  <User className="w-4 h-4 mr-1" />
-                  Red (Away)
-                </button>
-              </div>
+          {/* Enhanced Event Buttons */}
+          <div className="space-y-4">
+            {/* Goals */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => openEventModal('goal', 'home')}
+                className="btn btn-success flex items-center justify-center"
+              >
+                <Target className="w-4 h-4 mr-1" />
+                Goal (Home)
+              </button>
+              <button
+                onClick={() => openEventModal('goal', 'away')}
+                className="btn btn-success flex items-center justify-center"
+              >
+                <Target className="w-4 h-4 mr-1" />
+                Goal (Away)
+              </button>
+            </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => openEventModal('substitution', 'home')}
-                  className="btn btn-sm btn-secondary flex items-center justify-center"
-                >
-                  <Users className="w-4 h-4 mr-1" />
-                  Sub (Home)
-                </button>
-                <button
-                  onClick={() => openEventModal('substitution', 'away')}
-                  className="btn btn-sm btn-secondary flex items-center justify-center"
-                >
-                  <Users className="w-4 h-4 mr-1" />
-                  Sub (Away)
-                </button>
-              </div>
+            {/* Own Goals */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => openEventModal('own_goal', 'home')}
+                className="btn btn-warning flex items-center justify-center"
+              >
+                <AlertTriangle className="w-4 h-4 mr-1" />
+                Own Goal (Home)
+              </button>
+              <button
+                onClick={() => openEventModal('own_goal', 'away')}
+                className="btn btn-warning flex items-center justify-center"
+              >
+                <AlertTriangle className="w-4 h-4 mr-1" />
+                Own Goal (Away)
+              </button>
+            </div>
+
+            {/* Cards */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => openEventModal('yellow_card', 'home')}
+                className="btn btn-warning flex items-center justify-center"
+              >
+                <User className="w-4 h-4 mr-1" />
+                Yellow (Home)
+              </button>
+              <button
+                onClick={() => openEventModal('yellow_card', 'away')}
+                className="btn btn-warning flex items-center justify-center"
+              >
+                <User className="w-4 h-4 mr-1" />
+                Yellow (Away)
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => openEventModal('red_card', 'home')}
+                className="btn btn-danger flex items-center justify-center"
+              >
+                <User className="w-4 h-4 mr-1" />
+                Red (Home)
+              </button>
+              <button
+                onClick={() => openEventModal('red_card', 'away')}
+                className="btn btn-danger flex items-center justify-center"
+              >
+                <User className="w-4 h-4 mr-1" />
+                Red (Away)
+              </button>
+            </div>
+
+            {/* Substitutions */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => openEventModal('substitution', 'home')}
+                className="btn btn-secondary flex items-center justify-center"
+              >
+                <Users className="w-4 h-4 mr-1" />
+                Sub (Home)
+              </button>
+              <button
+                onClick={() => openEventModal('substitution', 'away')}
+                className="btn btn-secondary flex items-center justify-center"
+              >
+                <Users className="w-4 h-4 mr-1" />
+                Sub (Away)
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Match Events */}
+      {/* Enhanced Match Events Display */}
       <div className="card">
         <h3 className="text-lg font-semibold mb-4 flex items-center">
           <Clock className="w-5 h-5 mr-2" />
@@ -506,11 +469,18 @@ export default function LiveMatch() {
         ) : (
           <div className="space-y-2">
             {events.slice().reverse().map((event, index) => (
-              <div key={event.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <div key={event.id} className={`flex justify-between items-center p-3 rounded-lg ${
+                event.type === 'own_goal' ? 'bg-orange-50 border-l-4 border-orange-500' :
+                event.type === 'goal' ? 'bg-green-50 border-l-4 border-green-500' :
+                event.type === 'yellow_card' ? 'bg-yellow-50 border-l-4 border-yellow-500' :
+                event.type === 'red_card' ? 'bg-red-50 border-l-4 border-red-500' :
+                'bg-gray-50'
+              }`}>
                 <div className="flex items-center space-x-3">
                   <span className="font-mono text-sm font-medium">{event.minute}'</span>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                     event.type === 'goal' ? 'bg-green-100 text-green-800' :
+                    event.type === 'own_goal' ? 'bg-orange-100 text-orange-800' :
                     event.type === 'yellow_card' ? 'bg-yellow-100 text-yellow-800' :
                     event.type === 'red_card' ? 'bg-red-100 text-red-800' :
                     event.type === 'substitution' ? 'bg-blue-100 text-blue-800' :
@@ -518,10 +488,18 @@ export default function LiveMatch() {
                   }`}>
                     {event.type.replace('_', ' ').toUpperCase()}
                   </span>
-                  <span className="text-sm font-medium">{event.playerName || 'Unknown Player'}</span>
+                  <span className="text-sm font-medium">
+                    {event.playerName || getPlayerName(event.player) || 'Unknown Player'}
+                    {event.isOfficial && <span className="ml-1 text-purple-600">(Official)</span>}
+                  </span>
                   <span className="text-sm text-gray-600">
                     ({eventTeam === 'home' ? match.homeTeam.name : match.awayTeam.name})
                   </span>
+                  {event.type === 'own_goal' && (
+                    <span className="text-xs text-orange-600 font-medium">
+                      (Benefits {event.beneficiaryTeam === 'home' ? match.homeTeam.name : match.awayTeam.name})
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
@@ -529,27 +507,45 @@ export default function LiveMatch() {
         )}
       </div>
 
-      {/* Player Selection Modal */}
+      {/* Enhanced Player Selection Modal */}
       <Modal
         isOpen={showEventModal}
         onClose={() => setShowEventModal(false)}
-        title={`Select Player - ${eventType.replace('_', ' ').toUpperCase()}`}
+        title={`Select Player/Official - ${eventType.replace('_', ' ').toUpperCase()}`}
         size="md"
       >
-        <PlayerSelectionModal
+        <EnhancedPlayerSelectionModal
           players={eventTeam === 'home' ? homePlayers : awayPlayers}
           teamName={eventTeam === 'home' ? match.homeTeam.name : match.awayTeam.name}
           onSelectPlayer={addEventWithPlayer}
           onClose={() => setShowEventModal(false)}
           eventType={eventType}
+          allowOfficialEntry={eventType === 'yellow_card' || eventType === 'red_card'}
         />
       </Modal>
     </div>
   );
 }
 
-// Player Selection Modal Component
-function PlayerSelectionModal({ players, teamName, onSelectPlayer, onClose, eventType }) {
+// Enhanced Player Selection Modal Component
+function EnhancedPlayerSelectionModal({ 
+  players, 
+  teamName, 
+  onSelectPlayer, 
+  onClose, 
+  eventType,
+  allowOfficialEntry = false 
+}) {
+  const [customName, setCustomName] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  const handleCustomSubmit = () => {
+    if (customName.trim()) {
+      onSelectPlayer(null, customName.trim());
+      setCustomName('');
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="text-center">
@@ -559,41 +555,83 @@ function PlayerSelectionModal({ players, teamName, onSelectPlayer, onClose, even
         <p className="text-sm text-gray-600">Select the player involved in this event</p>
       </div>
 
+      {/* Player List */}
       {players.length === 0 ? (
         <div className="text-center py-8">
-          <p className="text-gray-500">No players found for this team</p>
-          <button onClick={onClose} className="btn btn-secondary mt-4">
-            Cancel
-          </button>
+          <User className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+          <p className="text-gray-500">No players available for this team</p>
         </div>
       ) : (
-        <div className="max-h-96 overflow-y-auto">
-          <div className="grid gap-2">
-            {players.map((player) => (
-              <button
-                key={player._id}
-                onClick={() => onSelectPlayer(player._id, player.name)}
-                className="flex items-center p-3 bg-gray-50 hover:bg-blue-50 rounded-lg transition-colors text-left"
-              >
-                <div className="flex items-center space-x-3 w-full">
-                  <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center">
-                    <User className="w-5 h-5 text-gray-600" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-medium text-gray-900">{player.name}</div>
-                    <div className="text-sm text-gray-600">
-                      #{player.jerseyNumber || 'N/A'} • {player.position}
-                    </div>
-                  </div>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {players.map(player => (
+            <button
+              key={player._id}
+              onClick={() => onSelectPlayer(player._id)}
+              className="w-full text-left p-3 rounded-lg border hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-medium">{player.name}</span>
+                  <span className="text-sm text-gray-500 ml-2">#{player.jerseyNumber}</span>
                 </div>
-              </button>
-            ))}
-          </div>
+                <span className="text-sm text-gray-400">{player.position}</span>
+              </div>
+            </button>
+          ))}
         </div>
       )}
 
-      <div className="flex justify-end space-x-4 pt-4 border-t">
-        <button onClick={onClose} className="btn btn-secondary">
+      {/* Official/Custom Entry */}
+      {allowOfficialEntry && (
+        <div className="border-t pt-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700">Official or Other</span>
+            <button
+              onClick={() => setShowCustomInput(!showCustomInput)}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              {showCustomInput ? 'Cancel' : 'Add Custom'}
+            </button>
+          </div>
+          
+          {showCustomInput && (
+            <div className="space-y-2">
+              <input
+                type="text"
+                placeholder="Enter official or custom name..."
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                className="form-input w-full"
+                onKeyPress={(e) => e.key === 'Enter' && handleCustomSubmit()}
+              />
+              <div className="flex space-x-2">
+                <button
+                  onClick={handleCustomSubmit}
+                  className="btn btn-primary btn-sm"
+                  disabled={!customName.trim()}
+                >
+                  Add Event
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCustomInput(false);
+                    setCustomName('');
+                  }}
+                  className="btn btn-secondary btn-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex justify-end">
+        <button
+          onClick={onClose}
+          className="btn btn-secondary"
+        >
           Cancel
         </button>
       </div>
