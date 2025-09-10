@@ -1,5 +1,5 @@
 // ===========================================
-// FILE: models/Match.js (ENHANCED WITH BETTER DATE HANDLING)
+// FILE: models/Match.js (ENHANCED WITH OWN GOALS & OFFICIAL CARDS)
 // ===========================================
 import mongoose from 'mongoose';
 
@@ -7,7 +7,7 @@ const eventSchema = new mongoose.Schema({
   id: { type: Number, required: true },
   type: { 
     type: String, 
-    enum: ['goal', 'yellow_card', 'red_card', 'substitution', 'other'],
+    enum: ['goal', 'own_goal', 'yellow_card', 'red_card', 'substitution', 'assist', 'other'],
     required: true 
   },
   team: { 
@@ -15,10 +15,51 @@ const eventSchema = new mongoose.Schema({
     enum: ['home', 'away'],
     required: true 
   },
-  minute: { type: Number, required: true },
+  minute: { type: Number, required: true, min: 0, max: 120 },
+  
+  // Enhanced player/official handling
   player: { type: mongoose.Schema.Types.ObjectId, ref: 'Player' },
+  playerName: { type: String }, // For officials or custom names
+  isOfficial: { type: Boolean, default: false }, // Flag for non-player events
+  
+  // Enhanced fields for different event types
+  assistedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Player' },
   description: { type: String, required: true },
-  timestamp: { type: Date, default: Date.now }
+  timestamp: { type: Date, default: Date.now },
+  
+  // Own goal specific fields
+  isOwnGoal: { type: Boolean, default: false },
+  beneficiaryTeam: { 
+    type: String, 
+    enum: ['home', 'away']
+  },
+  
+  // Substitution specific fields
+  playerOut: { type: mongoose.Schema.Types.ObjectId, ref: 'Player' },
+  playerIn: { type: mongoose.Schema.Types.ObjectId, ref: 'Player' }
+}, { _id: false });
+
+const matchStatsSchema = new mongoose.Schema({
+  // Traditional stats
+  homeScore: { type: Number, default: 0, min: 0 },
+  awayScore: { type: Number, default: 0, min: 0 },
+  
+  // ENHANCED: Detailed goal breakdown
+  homeGoals: {
+    regular: { type: Number, default: 0 }, // Goals scored by home team players
+    ownGoals: { type: Number, default: 0 }, // Own goals by away team benefiting home
+    total: { type: Number, default: 0 } // Sum of regular + ownGoals
+  },
+  awayGoals: {
+    regular: { type: Number, default: 0 }, // Goals scored by away team players  
+    ownGoals: { type: Number, default: 0 }, // Own goals by home team benefiting away
+    total: { type: Number, default: 0 } // Sum of regular + ownGoals
+  },
+  
+  // Additional match statistics
+  totalGoals: { type: Number, default: 0 },
+  yellowCards: { home: { type: Number, default: 0 }, away: { type: Number, default: 0 } },
+  redCards: { home: { type: Number, default: 0 }, away: { type: Number, default: 0 } }
 }, { _id: false });
 
 const liveDataSchema = new mongoose.Schema({
@@ -77,40 +118,29 @@ const matchSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: {
-      values: ['scheduled', 'live', 'completed', 'postponed', 'cancelled'],
-      message: 'Status must be one of: scheduled, live, completed, postponed, cancelled'
-    },
+    enum: ['scheduled', 'live', 'completed', 'postponed', 'cancelled'],
     default: 'scheduled'
   },
-  homeScore: { 
-    type: Number, 
-    default: 0,
-    min: [0, 'Score cannot be negative'],
-    max: [50, 'Score cannot exceed 50'], // Reasonable limit
-    validate: {
-      validator: function(value) {
-        return Number.isInteger(value);
-      },
-      message: 'Score must be an integer'
-    }
-  },
-  awayScore: { 
-    type: Number, 
-    default: 0,
-    min: [0, 'Score cannot be negative'],
-    max: [50, 'Score cannot exceed 50'], // Reasonable limit
-    validate: {
-      validator: function(value) {
-        return Number.isInteger(value);
-      },
-      message: 'Score must be an integer'
-    }
-  },
-  // Events stored at match level (not inside liveData)
-  events: [eventSchema],
   
-  // Live match data
+  // ENHANCED: Use detailed match stats instead of simple scores
+  stats: {
+    type: matchStatsSchema,
+    default: () => ({
+      homeScore: 0,
+      awayScore: 0,
+      homeGoals: { regular: 0, ownGoals: 0, total: 0 },
+      awayGoals: { regular: 0, ownGoals: 0, total: 0 },
+      totalGoals: 0,
+      yellowCards: { home: 0, away: 0 },
+      redCards: { home: 0, away: 0 }
+    })
+  },
+  
+  // DEPRECATED: Keep for backward compatibility
+  homeScore: { type: Number, default: 0 },
+  awayScore: { type: Number, default: 0 },
+  
+  events: [eventSchema],
   liveData: {
     type: liveDataSchema,
     default: () => ({
@@ -120,54 +150,99 @@ const matchSchema = new mongoose.Schema({
     })
   },
   
-  // Track if team stats have been updated for this match
-  statsUpdated: {
-    type: Boolean,
-    default: false
-  },
-  
-  notes: { 
-    type: String, 
-    default: '',
-    trim: true,
-    maxlength: [1000, 'Notes cannot exceed 1000 characters']
-  },
-
-  // Additional metadata for better tracking
-  createdBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
-  },
-  
-  lastModifiedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
-  }
+  statsUpdated: { type: Boolean, default: false },
+  notes: { type: String, default: '', trim: true }
 }, {
   timestamps: true
 });
 
-// Indexes for better query performance
-matchSchema.index({ season: 1, matchDate: 1 });
-matchSchema.index({ status: 1 });
-matchSchema.index({ 'liveData.isLive': 1 });
-matchSchema.index({ homeTeam: 1, awayTeam: 1 });
-matchSchema.index({ matchDate: 1 }); // For date-based queries
-matchSchema.index({ homeTeam: 1, matchDate: 1 }); // Team schedule queries
-matchSchema.index({ awayTeam: 1, matchDate: 1 }); // Team schedule queries
-
-// Compound index to prevent duplicate matches
+// Indexes for efficient queries
 matchSchema.index({ 
   homeTeam: 1, 
   awayTeam: 1, 
-  matchDate: 1, 
+  matchDate: 1,
   season: 1 
 }, { 
   unique: true,
   name: 'unique_match_constraint'
 });
+
+// Pre-save middleware to calculate stats from events
+matchSchema.pre('save', function(next) {
+  if (this.events && this.events.length > 0) {
+    this.calculateMatchStats();
+  }
+  next();
+});
+
+// Method to calculate match statistics from events
+matchSchema.methods.calculateMatchStats = function() {
+  const stats = {
+    homeGoals: { regular: 0, ownGoals: 0, total: 0 },
+    awayGoals: { regular: 0, ownGoals: 0, total: 0 },
+    yellowCards: { home: 0, away: 0 },
+    redCards: { home: 0, away: 0 }
+  };
+
+  this.events.forEach(event => {
+    switch (event.type) {
+      case 'goal':
+        if (event.team === 'home') {
+          stats.homeGoals.regular++;
+        } else {
+          stats.awayGoals.regular++;
+        }
+        break;
+        
+      case 'own_goal':
+        // Own goal benefits the opposing team
+        if (event.team === 'home') {
+          // Home player scored own goal, benefits away team
+          stats.awayGoals.ownGoals++;
+        } else {
+          // Away player scored own goal, benefits home team
+          stats.homeGoals.ownGoals++;
+        }
+        break;
+        
+      case 'yellow_card':
+        if (event.team === 'home') {
+          stats.yellowCards.home++;
+        } else {
+          stats.yellowCards.away++;
+        }
+        break;
+        
+      case 'red_card':
+        if (event.team === 'home') {
+          stats.redCards.home++;
+        } else {
+          stats.redCards.away++;
+        }
+        break;
+    }
+  });
+
+  // Calculate totals
+  stats.homeGoals.total = stats.homeGoals.regular + stats.homeGoals.ownGoals;
+  stats.awayGoals.total = stats.awayGoals.regular + stats.awayGoals.ownGoals;
+  stats.totalGoals = stats.homeGoals.total + stats.awayGoals.total;
+
+  // Update both new and legacy fields
+  this.stats = {
+    homeScore: stats.homeGoals.total,
+    awayScore: stats.awayGoals.total,
+    homeGoals: stats.homeGoals,
+    awayGoals: stats.awayGoals,
+    totalGoals: stats.totalGoals,
+    yellowCards: stats.yellowCards,
+    redCards: stats.redCards
+  };
+  
+  // Legacy compatibility
+  this.homeScore = stats.homeGoals.total;
+  this.awayScore = stats.awayGoals.total;
+};
 
 // Validation to prevent team playing against itself
 matchSchema.pre('save', function(next) {
@@ -190,29 +265,6 @@ matchSchema.pre('save', function(next) {
   next();
 });
 
-// Update lastUpdate when liveData changes
-matchSchema.pre('save', function(next) {
-  if (this.isModified('liveData') && this.liveData) {
-    this.liveData.lastUpdate = new Date();
-  }
-  next();
-});
-
-// Validation for match date (cannot be too far in the past for live matches)
-matchSchema.pre('save', function(next) {
-  if (this.status === 'live' && this.matchDate) {
-    const now = new Date();
-    const matchDate = new Date(this.matchDate);
-    const hoursDifference = Math.abs(now - matchDate) / (1000 * 60 * 60);
-    
-    // Allow live matches only if within 24 hours of scheduled time
-    if (hoursDifference > 24) {
-      next(new Error('Cannot set match as live if more than 24 hours from scheduled time'));
-    }
-  }
-  next();
-});
-
 // Virtual for match display name
 matchSchema.virtual('displayName').get(function() {
   return `${this.homeTeam?.name || 'TBD'} vs ${this.awayTeam?.name || 'TBD'}`;
@@ -230,84 +282,5 @@ matchSchema.virtual('isToday').get(function() {
   const matchDate = new Date(this.matchDate);
   return today.toDateString() === matchDate.toDateString();
 });
-
-// Virtual for formatted date (useful for templates)
-matchSchema.virtual('formattedDate').get(function() {
-  if (!this.matchDate) return '';
-  return this.matchDate.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-});
-
-// Method to check if teams can play (not conflicting with other matches)
-matchSchema.methods.checkTeamAvailability = async function() {
-  const Match = this.constructor;
-  const twoHoursBefore = new Date(this.matchDate.getTime() - 2 * 60 * 60 * 1000);
-  const twoHoursAfter = new Date(this.matchDate.getTime() + 2 * 60 * 60 * 1000);
-
-  const conflictingMatch = await Match.findOne({
-    _id: { $ne: this._id }, // Exclude current match
-    $or: [
-      { homeTeam: this.homeTeam },
-      { awayTeam: this.homeTeam },
-      { homeTeam: this.awayTeam },
-      { awayTeam: this.awayTeam }
-    ],
-    matchDate: {
-      $gte: twoHoursBefore,
-      $lte: twoHoursAfter
-    },
-    status: { $ne: 'cancelled' }
-  });
-
-  return !conflictingMatch;
-};
-
-// Method to get match duration (for completed matches)
-matchSchema.methods.getMatchDuration = function() {
-  if (!this.liveData || !this.liveData.startedAt || !this.liveData.endedAt) {
-    return null;
-  }
-  
-  const duration = this.liveData.endedAt - this.liveData.startedAt;
-  const minutes = Math.floor(duration / (1000 * 60));
-  return minutes;
-};
-
-// Static method to find matches by date range
-matchSchema.statics.findByDateRange = function(startDate, endDate, options = {}) {
-  const query = {
-    matchDate: {
-      $gte: new Date(startDate),
-      $lte: new Date(endDate)
-    }
-  };
-
-  if (options.season) {
-    query.season = options.season;
-  }
-
-  if (options.status) {
-    query.status = options.status;
-  }
-
-  return this.find(query)
-    .populate('homeTeam', 'name logo')
-    .populate('awayTeam', 'name logo')
-    .populate('season', 'name isActive')
-    .sort({ matchDate: 1 });
-};
-
-// Static method to find live matches
-matchSchema.statics.findLive = function() {
-  return this.find({ status: 'live' })
-    .populate('homeTeam', 'name logo')
-    .populate('awayTeam', 'name logo')
-    .sort({ matchDate: 1 });
-};
 
 export default mongoose.models.Match || mongoose.model('Match', matchSchema);
