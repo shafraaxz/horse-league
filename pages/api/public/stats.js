@@ -1,11 +1,9 @@
 // ===========================================
-// FILE 4: pages/api/public/stats.js (FIXED - Accurate Goal Calculation)
+// FILE: pages/api/public/stats.js (ENHANCED WITH OWN GOALS)
 // ===========================================
 import dbConnect from '../../../lib/mongodb';
-import Team from '../../../models/Team';
 import Player from '../../../models/Player';
 import Match from '../../../models/Match';
-import Transfer from '../../../models/Transfer';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -17,137 +15,165 @@ export default async function handler(req, res) {
   try {
     const { teamId, seasonId } = req.query;
     
-    // Build queries based on filters
-    const playerQuery = {};
-    const matchQuery = {};
+    // Get all players and calculate enhanced totals
+    const allPlayers = await Player.find({}).lean();
     
-    if (teamId && teamId !== 'all') {
-      if (teamId === 'free-agents') {
-        playerQuery.currentTeam = null;
-      } else {
-        playerQuery.currentTeam = teamId;
-      }
-    }
-    
-    if (seasonId && seasonId !== 'all') {
-      matchQuery.season = seasonId;
-      if (!teamId || teamId === 'all') {
-        const teams = await Team.find({ season: seasonId }).select('_id');
-        const teamIds = teams.map(team => team._id);
-        playerQuery.$or = [
-          { currentTeam: { $in: teamIds } },
-          { currentTeam: null }
-        ];
-      }
-    }
-
-    // Get active season for context
-    const activeSeason = await Team.findOne({})
-      .populate('season')
-      .then(team => team?.season?.isActive ? team.season : null);
-
-    // FIXED: Fetch ALL data in parallel without limits
-    const [
-      totalTeams,
-      totalPlayers,
-      allMatches,
-      allPlayers, // Get ALL players
-      totalTransfers
-    ] = await Promise.all([
-      teamId && teamId !== 'all' 
-        ? (teamId === 'free-agents' ? 0 : 1) 
-        : Team.countDocuments({}),
-      
-      Player.countDocuments(playerQuery),
-      Match.find(matchQuery).lean(),
-      Player.find(playerQuery).lean(), // No limit here
-      Transfer.countDocuments({}).catch(() => 0)
-    ]);
-
-    // Calculate match statistics
-    const totalMatches = allMatches.length;
-    const completedMatches = allMatches.filter(m => m.status === 'completed');
-    const liveMatches = allMatches.filter(m => m.status === 'live');
-    const scheduledMatches = allMatches.filter(m => m.status === 'scheduled');
-    const completedMatchCount = completedMatches.length;
-    const liveMatchCount = liveMatches.length;
-    const scheduledMatchCount = scheduledMatches.length;
-
-    // FIXED: Calculate total goals using ONLY careerStats from ALL players
-    const totalGoals = allPlayers.reduce((sum, player) => {
-      return sum + (player.careerStats?.goals || 0);
-    }, 0);
-
-    console.log('Goal calculation details (FIXED - ALL PLAYERS):', {
-      totalPlayers: allPlayers.length,
-      totalGoals,
-      samplePlayerStats: allPlayers
-        .filter(p => (p.careerStats?.goals || 0) > 0)
-        .slice(0, 5)
-        .map(p => ({
-          name: p.name,
-          careerGoals: p.careerStats?.goals || 0
-        }))
+    const enhancedStats = allPlayers.reduce((totals, player) => ({
+      totalGoals: totals.totalGoals + (player.careerStats?.goals || 0),
+      totalOwnGoals: totals.totalOwnGoals + (player.careerStats?.ownGoals || 0),
+      totalAssists: totals.totalAssists + (player.careerStats?.assists || 0),
+      totalAppearances: totals.totalAppearances + (player.careerStats?.appearances || 0),
+      totalYellowCards: totals.totalYellowCards + (player.careerStats?.yellowCards || 0),
+      totalRedCards: totals.totalRedCards + (player.careerStats?.redCards || 0)
+    }), { 
+      totalGoals: 0, 
+      totalOwnGoals: 0, 
+      totalAssists: 0, 
+      totalAppearances: 0,
+      totalYellowCards: 0,
+      totalRedCards: 0
     });
 
-    // Calculate match completion rate
-    const matchCompletionRate = totalMatches > 0 
-      ? Math.round((completedMatchCount / totalMatches) * 100) 
-      : 0;
+    // Get match-based totals for comparison
+    const allMatches = await Match.find({ status: 'completed' }).lean();
+    const matchTotals = allMatches.reduce((totals, match) => {
+      const homeTotal = match.stats?.homeGoals?.total || match.homeScore || 0;
+      const awayTotal = match.stats?.awayGoals?.total || match.awayScore || 0;
+      
+      return {
+        totalMatchGoals: totals.totalMatchGoals + homeTotal + awayTotal,
+        regularGoals: totals.regularGoals + 
+          (match.stats?.homeGoals?.regular || 0) + 
+          (match.stats?.awayGoals?.regular || 0),
+        ownGoalsFromMatches: totals.ownGoalsFromMatches + 
+          (match.stats?.homeGoals?.ownGoals || 0) + 
+          (match.stats?.awayGoals?.ownGoals || 0),
+        yellowCardsFromMatches: totals.yellowCardsFromMatches +
+          (match.stats?.yellowCards?.home || 0) +
+          (match.stats?.yellowCards?.away || 0),
+        redCardsFromMatches: totals.redCardsFromMatches +
+          (match.stats?.redCards?.home || 0) +
+          (match.stats?.redCards?.away || 0)
+      };
+    }, { 
+      totalMatchGoals: 0, 
+      regularGoals: 0, 
+      ownGoalsFromMatches: 0,
+      yellowCardsFromMatches: 0,
+      redCardsFromMatches: 0
+    });
 
-    // Calculate average goals per match
-    const avgGoalsPerMatch = completedMatchCount > 0 
-      ? Math.round((totalGoals / completedMatchCount) * 10) / 10 
-      : 0;
+    // Top performers
+    const topScorers = allPlayers
+      .filter(player => player.careerStats?.goals > 0)
+      .sort((a, b) => (b.careerStats?.goals || 0) - (a.careerStats?.goals || 0))
+      .slice(0, 10)
+      .map(player => ({
+        _id: player._id,
+        name: player.name,
+        team: player.currentTeam,
+        goals: player.careerStats?.goals || 0,
+        ownGoals: player.careerStats?.ownGoals || 0,
+        assists: player.careerStats?.assists || 0
+      }));
+
+    const topAssists = allPlayers
+      .filter(player => player.careerStats?.assists > 0)
+      .sort((a, b) => (b.careerStats?.assists || 0) - (a.careerStats?.assists || 0))
+      .slice(0, 10)
+      .map(player => ({
+        _id: player._id,
+        name: player.name,
+        team: player.currentTeam,
+        assists: player.careerStats?.assists || 0,
+        goals: player.careerStats?.goals || 0
+      }));
+
+    // Most disciplined (least cards)
+    const mostDisciplined = allPlayers
+      .filter(player => player.careerStats?.appearances > 0)
+      .map(player => ({
+        _id: player._id,
+        name: player.name,
+        team: player.currentTeam,
+        appearances: player.careerStats?.appearances || 0,
+        yellowCards: player.careerStats?.yellowCards || 0,
+        redCards: player.careerStats?.redCards || 0,
+        cardRate: ((player.careerStats?.yellowCards || 0) + (player.careerStats?.redCards || 0) * 3) / 
+                  Math.max(player.careerStats?.appearances || 1, 1)
+      }))
+      .sort((a, b) => a.cardRate - b.cardRate)
+      .slice(0, 10);
+
+    // Most own goals (for transparency)
+    const mostOwnGoals = allPlayers
+      .filter(player => player.careerStats?.ownGoals > 0)
+      .sort((a, b) => (b.careerStats?.ownGoals || 0) - (a.careerStats?.ownGoals || 0))
+      .slice(0, 5)
+      .map(player => ({
+        _id: player._id,
+        name: player.name,
+        team: player.currentTeam,
+        ownGoals: player.careerStats?.ownGoals || 0,
+        goals: player.careerStats?.goals || 0
+      }));
 
     const stats = {
-      // Basic counts
-      totalTeams,
-      totalPlayers,
-      totalMatches,
-      totalGoals,
-      totalTransfers,
-      
-      // Match breakdown
-      completedMatches: completedMatchCount,
-      liveMatches: liveMatchCount,
-      scheduledMatches: scheduledMatchCount,
-      matchCompletionRate,
-      avgGoalsPerMatch,
-      
-      // Filter context
-      filters: {
-        teamId: teamId || null,
-        seasonId: seasonId || null,
-        teamName: teamId ? (teamId === 'free-agents' ? 'Free Agents' : 'Selected Team') : null,
-        seasonName: activeSeason?.name || null
+      // Enhanced breakdown
+      playerStats: {
+        goals: enhancedStats.totalGoals,
+        ownGoals: enhancedStats.totalOwnGoals,
+        assists: enhancedStats.totalAssists,
+        appearances: enhancedStats.totalAppearances,
+        yellowCards: enhancedStats.totalYellowCards,
+        redCards: enhancedStats.totalRedCards
       },
       
-      // Season info
-      currentSeason: activeSeason ? {
-        _id: activeSeason._id,
-        name: activeSeason.name,
-        isActive: activeSeason.isActive,
-        startDate: activeSeason.startDate,
-        endDate: activeSeason.endDate
-      } : null
+      // Match totals
+      matchStats: {
+        totalGoals: matchTotals.totalMatchGoals,
+        regularGoals: matchTotals.regularGoals,
+        ownGoals: matchTotals.ownGoalsFromMatches,
+        yellowCards: matchTotals.yellowCardsFromMatches,
+        redCards: matchTotals.redCardsFromMatches
+      },
+      
+      // Reconciliation
+      reconciliation: {
+        goalsReconciled: enhancedStats.totalGoals === matchTotals.regularGoals,
+        ownGoalsReconciled: enhancedStats.totalOwnGoals === matchTotals.ownGoalsFromMatches,
+        yellowCardsReconciled: enhancedStats.totalYellowCards === matchTotals.yellowCardsFromMatches,
+        redCardsReconciled: enhancedStats.totalRedCards === matchTotals.redCardsFromMatches
+      },
+      
+      // Top performers
+      leaderboards: {
+        topScorers,
+        topAssists,
+        mostDisciplined,
+        mostOwnGoals
+      },
+      
+      // Explanation
+      explanation: {
+        playerGoals: "Goals credited to individual players",
+        matchGoals: "Total goals from match results (includes own goals)",
+        ownGoals: "Goals scored against player's own team",
+        totalDifference: matchTotals.totalMatchGoals - enhancedStats.totalGoals
+      }
     };
 
-    console.log('📊 Stats API Response (FIXED - ALL PLAYERS):', {
-      totalGoals: stats.totalGoals,
-      totalPlayers: stats.totalPlayers,
-      avgGoalsPerMatch: stats.avgGoalsPerMatch,
-      playersQueried: allPlayers.length,
-      filters: stats.filters
+    console.log('📊 Enhanced Stats Breakdown:', {
+      playerGoals: stats.playerStats.goals,
+      playerOwnGoals: stats.playerStats.ownGoals,
+      matchTotalGoals: stats.matchStats.totalGoals,
+      reconciled: stats.reconciliation
     });
 
     res.status(200).json(stats);
     
   } catch (error) {
-    console.error('❌ Stats API error:', error);
-    res.status(500).json({ 
-      message: 'Failed to fetch statistics',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+    console.error('Enhanced stats API error:', error);
+    res.status(500).json({ message: 'Failed to fetch enhanced statistics' });
   }
 }
