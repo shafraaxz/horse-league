@@ -1,4 +1,4 @@
-// FILE: pages/index.js (FIXED - Reliable Statistics)
+// FILE: pages/index.js (SIMPLIFIED HERO & NO AUTO-REFRESH)
 // ===========================================
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -32,11 +32,10 @@ export default function Home() {
   });
   const [isLoading, setIsLoading] = useState(true);
 
+  // FIXED: Removed auto-refresh interval
   useEffect(() => {
     fetchHomeData();
-    // Auto-refresh every 30 seconds for live data
-    const interval = setInterval(fetchHomeData, 30000);
-    return () => clearInterval(interval);
+    // Removed auto-refresh to prevent constant reloading
   }, []);
 
   // Add debug logging
@@ -44,13 +43,13 @@ export default function Home() {
     console.log('Current stats state:', stats);
   }, [stats]);
 
-  // FIXED: Homepage data fetching - prioritize reliability
+  // Homepage data fetching
   const fetchHomeData = async () => {
     try {
       console.log('Fetching home page data...');
       setIsLoading(true);
       
-      // FIXED: Always use basic stats first (reliable approach)
+      // Use basic stats
       await fetchBasicStats();
 
       // Fetch live match
@@ -122,20 +121,14 @@ export default function Home() {
         console.error('Error fetching recent matches:', error);
       }
 
-      // FIXED: Fetch top players with robust error handling
+      // Fetch top players
       try {
         const playersResponse = await fetch('/api/public/players');
         if (playersResponse.ok) {
           const playersData = await playersResponse.json();
           if (Array.isArray(playersData)) {
             console.log('Players data received:', playersData.length);
-            console.log('Sample player data:', playersData.slice(0, 2).map(p => ({
-              name: p.name,
-              careerGoals: p.careerStats?.goals,
-              careerAssists: p.careerStats?.assists
-            })));
             
-            // FIXED: Robust goal processing with multiple fallbacks
             const scorers = playersData
               .filter(p => {
                 const goals = p.careerStats?.goals || 0;
@@ -155,7 +148,6 @@ export default function Home() {
             setTopScorers(scorers);
             console.log('Top scorers processed:', scorers.map(p => `${p.name}: ${p.normalizedGoals} goals`));
             
-            // FIXED: Robust assists processing
             const assisters = playersData
               .filter(p => {
                 const assists = p.careerStats?.assists || 0;
@@ -188,12 +180,10 @@ export default function Home() {
     }
   };
 
-  // FIXED: Enhanced basic stats function with better error handling
   const fetchBasicStats = async () => {
     try {
       console.log('Fetching basic stats...');
       
-      // Fetch all data in parallel with individual error handling
       const fetchWithFallback = async (url, defaultValue = []) => {
         try {
           const response = await fetch(url);
@@ -219,7 +209,6 @@ export default function Home() {
       const totalPlayers = players.length;
       const totalMatches = matches.length;
       
-      // Calculate total goals from player career stats
       const totalGoals = players.reduce((sum, p) => {
         const playerGoals = p.careerStats?.goals || 0;
         return sum + playerGoals;
@@ -253,7 +242,6 @@ export default function Home() {
       
     } catch (error) {
       console.error('Error fetching basic stats:', error);
-      // Set minimal stats if everything fails
       setStats({
         totalTeams: 0,
         totalPlayers: 0,
@@ -289,86 +277,74 @@ export default function Home() {
   }
 
   return (
-    <div className="space-y-12">
-      {/* Enhanced Hero Section */}
-      <div className="relative overflow-hidden bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 rounded-3xl">
-        {/* Animated Background Elements */}
+    <div className="space-y-8">
+      {/* SIMPLIFIED Hero Section */}
+      <div className="relative overflow-hidden bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 rounded-2xl">
         <div className="absolute inset-0 bg-black opacity-10"></div>
-        <div className="absolute inset-0">
-          <div className="absolute top-10 left-10 w-32 h-32 bg-white/5 rounded-full animate-pulse"></div>
-          <div className="absolute bottom-10 right-10 w-24 h-24 bg-white/5 rounded-full animate-pulse delay-1000"></div>
-          <div className="absolute top-1/2 left-1/4 w-16 h-16 bg-white/5 rounded-full animate-pulse delay-500"></div>
-          <div className="absolute top-1/4 right-1/4 w-20 h-20 bg-white/5 rounded-full animate-pulse delay-700"></div>
-        </div>
         
-        <div className="relative px-8 py-20 sm:py-28 lg:py-36">
-          <div className="text-center max-w-5xl mx-auto">
-            {/* Tournament Logo */}
-            <div className="mb-10">
+        <div className="relative px-6 py-12 sm:py-16">
+          <div className="text-center max-w-4xl mx-auto">
+            {/* Smaller Tournament Logo */}
+            <div className="mb-8">
               <NextImage
                 src="https://res.cloudinary.com/dq8lszs2o/image/upload/v1756292892/horse-futsal-league/banners/league-banner-1756292892007.png"
                 alt="Horse Futsal Tournament"
-                width={700}
-                height={250}
-                className="mx-auto max-w-full h-auto object-contain drop-shadow-2xl"
+                width={500}
+                height={180}
+                className="mx-auto max-w-full h-auto object-contain drop-shadow-xl"
                 priority
               />
             </div>
             
-            {/* Tagline with animation */}
-            <div className="mb-12">
-              <h2 className="text-2xl md:text-4xl text-white/90 mb-4 font-light tracking-wide">
+            {/* Simplified Tagline */}
+            <div className="mb-8">
+              <h2 className="text-xl md:text-2xl text-white/90 mb-3 font-light">
                 The Premier Futsal League Experience
               </h2>
-              <p className="text-lg md:text-xl text-blue-200 max-w-2xl mx-auto">
-                Join the excitement of fast-paced futsal action with real-time updates, 
-                comprehensive statistics, and thrilling match experiences.
+              <p className="text-base md:text-lg text-blue-200 max-w-xl mx-auto">
+                Fast-paced futsal action with real-time updates and comprehensive statistics.
               </p>
             </div>
             
-            {/* Enhanced Action Buttons */}
-            <div className="flex flex-col sm:flex-row gap-6 justify-center items-center mb-8">
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center mb-6">
               {liveMatch && (
                 <Link
                   href="/matches/live"
-                  className="group inline-flex items-center bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white px-10 py-5 rounded-2xl text-lg font-bold transition-all duration-300 transform hover:scale-105 hover:-translate-y-1 shadow-xl hover:shadow-2xl"
+                  className="inline-flex items-center bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-xl font-semibold transition-colors"
                 >
-                  <div className="flex items-center mr-4">
-                    <div className="w-3 h-3 bg-white rounded-full animate-pulse mr-2"></div>
-                    <Play className="w-5 h-5 fill-current" />
-                  </div>
-                  Watch Live Match
-                  <ChevronRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+                  <div className="w-2 h-2 bg-white rounded-full animate-pulse mr-2"></div>
+                  <Play className="w-4 h-4 mr-2" />
+                  Watch Live
                 </Link>
               )}
               
               <Link
                 href="/standings"
-                className="group inline-flex items-center bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-10 py-5 rounded-2xl text-lg font-semibold transition-all duration-300 border-2 border-white/20 hover:border-white/40 hover:scale-105 hover:-translate-y-1"
+                className="inline-flex items-center bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-xl font-semibold transition-colors border border-white/20"
               >
-                <Trophy className="w-5 h-5 mr-3" />
+                <Trophy className="w-4 h-4 mr-2" />
                 League Table
-                <ChevronRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
               </Link>
             </div>
 
-            {/* Quick Stats in Hero */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 max-w-3xl mx-auto">
+            {/* Compact Stats */}
+            <div className="grid grid-cols-4 gap-4 max-w-md mx-auto">
               <div className="text-center">
-                <div className="text-3xl sm:text-4xl font-bold text-white mb-1">{stats.totalTeams}</div>
-                <div className="text-blue-200 text-sm uppercase tracking-wider">Teams</div>
+                <div className="text-2xl font-bold text-white">{stats.totalTeams}</div>
+                <div className="text-blue-200 text-xs uppercase">Teams</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl sm:text-4xl font-bold text-white mb-1">{stats.totalPlayers}</div>
-                <div className="text-blue-200 text-sm uppercase tracking-wider">Players</div>
+                <div className="text-2xl font-bold text-white">{stats.totalPlayers}</div>
+                <div className="text-blue-200 text-xs uppercase">Players</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl sm:text-4xl font-bold text-white mb-1">{stats.totalMatches}</div>
-                <div className="text-blue-200 text-sm uppercase tracking-wider">Matches</div>
+                <div className="text-2xl font-bold text-white">{stats.totalMatches}</div>
+                <div className="text-blue-200 text-xs uppercase">Matches</div>
               </div>
               <div className="text-center">
-                <div className="text-3xl sm:text-4xl font-bold text-white mb-1">{stats.totalGoals}</div>
-                <div className="text-blue-200 text-sm uppercase tracking-wider">Goals</div>
+                <div className="text-2xl font-bold text-white">{stats.totalGoals}</div>
+                <div className="text-blue-200 text-xs uppercase">Goals</div>
               </div>
             </div>
           </div>
@@ -377,19 +353,19 @@ export default function Home() {
 
       {/* Live Match Alert */}
       {liveMatch && (
-        <div className="bg-gradient-to-r from-red-50 to-pink-50 border-l-4 border-red-500 rounded-lg p-6 shadow-lg">
+        <div className="bg-gradient-to-r from-red-50 to-pink-50 border-l-4 border-red-500 rounded-lg p-4 shadow-lg">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-6">
+            <div className="flex items-center space-x-4">
               <div className="flex items-center">
                 <div className="relative">
-                  <div className="w-4 h-4 bg-red-500 rounded-full animate-ping absolute"></div>
-                  <div className="w-4 h-4 bg-red-500 rounded-full"></div>
+                  <div className="w-3 h-3 bg-red-500 rounded-full animate-ping absolute"></div>
+                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
                 </div>
-                <span className="text-red-700 font-bold text-lg ml-3">LIVE NOW</span>
+                <span className="text-red-700 font-bold ml-2">LIVE</span>
               </div>
-              <div className="text-xl font-bold text-gray-800">
+              <div className="font-bold text-gray-800">
                 {liveMatch.homeTeam?.name || 'Team A'} 
-                <span className="mx-4 text-2xl text-red-600">
+                <span className="mx-3 text-xl text-red-600">
                   {liveMatch.homeScore || 0} - {liveMatch.awayScore || 0}
                 </span>
                 {liveMatch.awayTeam?.name || 'Team B'}
@@ -397,87 +373,87 @@ export default function Home() {
             </div>
             <Link
               href={`/matches/${liveMatch._id}`}
-              className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors flex items-center space-x-2"
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg font-semibold transition-colors flex items-center space-x-2"
             >
               <Eye className="w-4 h-4" />
-              <span>Watch Live</span>
+              <span>Watch</span>
             </Link>
           </div>
         </div>
       )}
 
-      {/* Enhanced Statistics Grid */}
+      {/* Statistics Grid */}
       <div>
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">Tournament Statistics</h2>
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">Tournament Statistics</h2>
           <p className="text-gray-600">Live data from the current season</p>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-6">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <Users className="w-8 h-8 text-blue-600" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <Users className="w-6 h-6 text-blue-600" />
               <span className="text-xs font-medium text-blue-600 bg-blue-200 px-2 py-1 rounded-full">TEAMS</span>
             </div>
-            <div className="text-3xl font-bold text-gray-900 mb-1">{stats.totalTeams}</div>
-            <p className="text-sm text-gray-600">Registered Teams</p>
+            <div className="text-2xl font-bold text-gray-900">{stats.totalTeams}</div>
+            <p className="text-sm text-gray-600">Registered</p>
           </div>
 
-          <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <Users className="w-8 h-8 text-green-600" />
+          <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <Users className="w-6 h-6 text-green-600" />
               <span className="text-xs font-medium text-green-600 bg-green-200 px-2 py-1 rounded-full">PLAYERS</span>
             </div>
-            <div className="text-3xl font-bold text-gray-900 mb-1">{stats.totalPlayers}</div>
-            <p className="text-sm text-gray-600">Active Players</p>
+            <div className="text-2xl font-bold text-gray-900">{stats.totalPlayers}</div>
+            <p className="text-sm text-gray-600">Active</p>
           </div>
 
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <Calendar className="w-8 h-8 text-purple-600" />
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <Calendar className="w-6 h-6 text-purple-600" />
               <span className="text-xs font-medium text-purple-600 bg-purple-200 px-2 py-1 rounded-full">MATCHES</span>
             </div>
-            <div className="text-3xl font-bold text-gray-900 mb-1">{stats.totalMatches}</div>
-            <p className="text-sm text-gray-600">Total Matches</p>
+            <div className="text-2xl font-bold text-gray-900">{stats.totalMatches}</div>
+            <p className="text-sm text-gray-600">Total</p>
           </div>
 
-          <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <Target className="w-8 h-8 text-yellow-600" />
+          <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 p-4 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <Target className="w-6 h-6 text-yellow-600" />
               <span className="text-xs font-medium text-yellow-600 bg-yellow-200 px-2 py-1 rounded-full">GOALS</span>
             </div>
-            <div className="text-3xl font-bold text-gray-900 mb-1">{stats.totalGoals}</div>
-            <p className="text-sm text-gray-600">Goals Scored</p>
+            <div className="text-2xl font-bold text-gray-900">{stats.totalGoals}</div>
+            <p className="text-sm text-gray-600">Scored</p>
           </div>
 
-          <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <Activity className="w-8 h-8 text-indigo-600" />
+          <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-4 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <Activity className="w-6 h-6 text-indigo-600" />
               <span className="text-xs font-medium text-indigo-600 bg-indigo-200 px-2 py-1 rounded-full">AVG</span>
             </div>
-            <div className="text-3xl font-bold text-gray-900 mb-1">{stats.avgGoalsPerMatch}</div>
-            <p className="text-sm text-gray-600">Goals Per Match</p>
+            <div className="text-2xl font-bold text-gray-900">{stats.avgGoalsPerMatch}</div>
+            <p className="text-sm text-gray-600">Per Match</p>
           </div>
 
-          <div className="bg-gradient-to-br from-red-50 to-red-100 p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <BarChart3 className="w-8 h-8 text-red-600" />
+          <div className="bg-gradient-to-br from-red-50 to-red-100 p-4 rounded-xl shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <BarChart3 className="w-6 h-6 text-red-600" />
               <span className="text-xs font-medium text-red-600 bg-red-200 px-2 py-1 rounded-full">RATE</span>
             </div>
-            <div className="text-3xl font-bold text-gray-900 mb-1">{stats.matchCompletionRate}%</div>
-            <p className="text-sm text-gray-600">Completion Rate</p>
+            <div className="text-2xl font-bold text-gray-900">{stats.matchCompletionRate}%</div>
+            <p className="text-sm text-gray-600">Complete</p>
           </div>
         </div>
       </div>
 
       {/* Main Content Grid - 4 columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-6">
         
         {/* League Standings */}
         <div className="xl:col-span-1">
           <div className="bg-white rounded-xl shadow-lg p-6 h-full">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-gray-900 flex items-center">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center">
                 <Trophy className="w-5 h-5 mr-2 text-yellow-500" />
                 League Table
               </h3>
@@ -486,9 +462,9 @@ export default function Home() {
                 <ChevronRight className="w-4 h-4 ml-1" />
               </Link>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {standings.slice(0, 6).map((team, index) => (
-                <div key={team._id} className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
+                <div key={team._id} className="flex items-center justify-between p-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
                   <div className="flex items-center space-x-3">
                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                       index === 0 ? 'bg-yellow-500 text-white' :
@@ -506,7 +482,7 @@ export default function Home() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-lg">{team.enhancedStats?.points || team.stats?.points || 0}</p>
+                    <p className="font-bold">{team.enhancedStats?.points || team.stats?.points || 0}</p>
                     <p className="text-xs text-gray-500">pts</p>
                   </div>
                 </div>
@@ -521,8 +497,8 @@ export default function Home() {
         {/* Top Scorers */}
         <div className="xl:col-span-1">
           <div className="bg-white rounded-xl shadow-lg p-6 h-full">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-gray-900 flex items-center">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center">
                 <Target className="w-5 h-5 mr-2 text-red-500" />
                 Top Scorers
               </h3>
@@ -531,9 +507,9 @@ export default function Home() {
                 <ChevronRight className="w-4 h-4 ml-1" />
               </Link>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {topScorers.slice(0, 5).map((player, index) => (
-                <div key={player._id} className="flex items-center justify-between p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
+                <div key={player._id} className="flex items-center justify-between p-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
                   <div className="flex items-center space-x-3">
                     <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                       index === 0 ? 'bg-yellow-500 text-white' :
@@ -551,7 +527,7 @@ export default function Home() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-lg text-red-600">
+                    <p className="font-bold text-red-600">
                       {player.normalizedGoals}
                     </p>
                     <p className="text-xs text-gray-500">goals</p>
@@ -568,8 +544,8 @@ export default function Home() {
         {/* Upcoming Matches */}
         <div className="xl:col-span-1">
           <div className="bg-white rounded-xl shadow-lg p-6 h-full">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-gray-900 flex items-center">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center">
                 <Clock className="w-5 h-5 mr-2 text-blue-500" />
                 Upcoming
               </h3>
@@ -578,7 +554,7 @@ export default function Home() {
                 <ChevronRight className="w-4 h-4 ml-1" />
               </Link>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-3">
               {upcomingMatches.slice(0, 4).map((match) => (
                 <div key={match._id} className="border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow">
                   <div className="flex justify-between items-center mb-2">
@@ -606,8 +582,8 @@ export default function Home() {
         {/* Recent Transfers */}
         <div className="xl:col-span-1">
           <div className="bg-white rounded-xl shadow-lg p-6 h-full">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-gray-900 flex items-center">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center">
                 <TrendingUp className="w-5 h-5 mr-2 text-green-500" />
                 Transfers
               </h3>
@@ -616,7 +592,7 @@ export default function Home() {
                 <ChevronRight className="w-4 h-4 ml-1" />
               </Link>
             </div>
-            <div className="space-y-4">
+            <div className="space-y-3">
               {recentTransfers.slice(0, 5).map((transfer) => (
                 <div key={transfer._id} className="border-l-4 border-green-500 pl-3 py-1">
                   <p className="font-medium text-sm">
@@ -642,20 +618,20 @@ export default function Home() {
       {/* Recent Results Section */}
       <div>
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center">
-            <Shield className="w-6 h-6 mr-3 text-green-600" />
+          <h2 className="text-xl font-bold text-gray-900 flex items-center">
+            <Shield className="w-5 h-5 mr-3 text-green-600" />
             Recent Results
           </h2>
           <Link href="/matches" className="text-blue-600 hover:text-blue-800 flex items-center font-medium">
             View All Matches
-            <ChevronRight className="w-5 h-5 ml-1" />
+            <ChevronRight className="w-4 h-4 ml-1" />
           </Link>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {recentMatches.slice(0, 6).map((match) => (
-            <div key={match._id} className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
-              <div className="flex justify-between items-center mb-4">
+            <div key={match._id} className="bg-white rounded-xl shadow-md p-4 hover:shadow-lg transition-shadow">
+              <div className="flex justify-between items-center mb-3">
                 <span className="text-xs font-medium text-green-600 bg-green-100 px-2 py-1 rounded-full">
                   FINAL
                 </span>
@@ -664,18 +640,18 @@ export default function Home() {
                 </span>
               </div>
               
-              <div className="text-center mb-4">
+              <div className="text-center mb-3">
                 <div className="flex justify-center items-center space-x-4">
                   <div className="text-right flex-1">
-                    <p className="font-semibold text-gray-900 truncate">{match.homeTeam?.name}</p>
+                    <p className="font-semibold text-gray-900 text-sm truncate">{match.homeTeam?.name}</p>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-2xl font-bold text-gray-900">{match.homeScore || 0}</span>
+                    <span className="text-xl font-bold text-gray-900">{match.homeScore || 0}</span>
                     <span className="text-gray-400">-</span>
-                    <span className="text-2xl font-bold text-gray-900">{match.awayScore || 0}</span>
+                    <span className="text-xl font-bold text-gray-900">{match.awayScore || 0}</span>
                   </div>
                   <div className="text-left flex-1">
-                    <p className="font-semibold text-gray-900 truncate">{match.awayTeam?.name}</p>
+                    <p className="font-semibold text-gray-900 text-sm truncate">{match.awayTeam?.name}</p>
                   </div>
                 </div>
               </div>
